@@ -10,7 +10,7 @@ splist *wait_for_free = NULL;
 
 #if CFG_ALLOW_DYNAMIC_ALLOC
 
-static u_char unaligned_heap[UNVS_HEAP_SIZE];
+static u_char unaligned_heap[CFG_KORA_HEAP_SIZE];
 static u_char *heap = unaligned_heap;
 
 typedef struct header {
@@ -24,7 +24,7 @@ typedef struct memory_block{
 } block_t;
 
 
-static u_int remain_size = UNVS_HEAP_SIZE;
+static u_int remain_size = CFG_KORA_HEAP_SIZE;
 static block_t *end;
 static block_t *iter;
 
@@ -37,7 +37,7 @@ static void heap_init(void){
 	}
 
 	block_t *first = (block_t*)heap;
-	first->size = UNVS_HEAP_SIZE;
+	first->size = CFG_KORA_HEAP_SIZE;
 	first->next = first;
 
 	end = first;
@@ -208,7 +208,7 @@ void queue_free(void *addr){
 bool is_heap_addr(void *addr){
 	u_int _addr = (u_int)addr;
 	u_int _heap = (u_int)heap;
-	if (_addr < _heap || _addr >= _heap + UNVS_HEAP_SIZE)
+	if (_addr < _heap || _addr >= _heap + CFG_KORA_HEAP_SIZE)
 		return false;
 	return true;
 }

@@ -8,7 +8,8 @@
 
 
 unsigned int lock_nesting = 0;
-/* disable all interrpution except NMI and HardFault */
+
+// disable all interrpution except NMI and HardFault
 void enter_critical(void){
 	__asm {
 		cpsid i;
@@ -40,9 +41,11 @@ __asm int get_highest_priority(void){
 	nop
 }
 
+
 void enable_os_tick(void){
 	SysTick->CTRL |= 0x1; 	// enable systick
 }
+
 
 void task_self_delete(void);
 void port_stack_init(vfunc code, void *para, u_char *rt_stack){
@@ -104,6 +107,7 @@ __asm void PendSV_Handler(void){
 
 
 /***************************** SVC_Handler *****************************/
+
 __asm void SVC_Handler(void){
 	extern current_tcb
 	extern os_service 
@@ -140,8 +144,10 @@ mysvc
 	nop
 }
 
-
 #define NVIC_VTOR_REG   	0xE000ED08
+
+// After reset, system enters the privileged level and use msp, to switch to unprivileged level
+// and use psp, need to set correlation registers in isr functions. 
 __asm void start_first_task(void){
 	PRESERVE8
 	ldr 	r0, =NVIC_VTOR_REG

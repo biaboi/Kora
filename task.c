@@ -71,7 +71,7 @@ static void os_tick_reset(void){
 }
 
 
-void add_to_sleep(task_handle tsk, u_int xtick){
+static void add_to_sleep(task_handle tsk, u_int xtick){
 	if (xtick > UINT_MAX-os_tick_count)
 		os_tick_reset();
 
@@ -193,10 +193,10 @@ enum task_states get_task_state(task_handle tsk){
 	list *state_node_leader = tsk->state_node.leader;
 	list *event_node_leader = tsk->event_node.leader;
 
-	if (state_node_leader == (list*)&ready_lists)
-		return STATE_READY;
 	if (event_node_leader != NULL)
 		return STATE_BLOCK;
+	if (state_node_leader == (list*)(ready_lists + tsk->priority))
+		return STATE_READY;
 	if (state_node_leader == &sleep_list)
 		return STATE_SLEEP;
 	return STATE_SUSPEND;
@@ -293,6 +293,7 @@ void task_delete(task_handle tsk){
 }
 
 
+// the task's lr register points to this function for automatic deletion at the end of the task
 void task_self_delete(void){
 	task_delete(current_tcb);
 }
@@ -325,25 +326,25 @@ bool is_scheduler_running(void){
 }
 
 
-static void wake_task_from_sleep(void){
-	base_node *first = sleep_list.dmy.next;
-	if (os_tick_count >= first->value){
-		tcb_t *tcb = STATE_TO_TCB(first);
-		list_remove(&tcb->event_node);
-		list_remove(&tcb->state_node);
-		add_to_ready(tcb);
-	}
-}
-
-
+// called in pendsv to find next task to execute
 void schedule(void){
 	base_node **it = &(ready_lists[highest_prio].iterator);
 	(*it) = (*it)->next;
 	if (*it == &(ready_lists[highest_prio].dmy))
 		(*it) = (*it)->next;
-	current_tcb = STATE_TO_TCB(*it);
+	current_tcb = STATE_NODE_TO_TCB(*it);
 }
 
+
+static void wake_task_from_sleep(void){
+	base_node *first = sleep_list.dmy.next;
+	if (os_tick_count >= first->value){
+		tcb_t *tcb = STATE_NODE_TO_TCB(first);
+		list_remove(&tcb->event_node);
+		list_remove(&tcb->state_node);
+		add_to_ready(tcb);
+	}
+}
 
 void stack_safety_check(void); 
 

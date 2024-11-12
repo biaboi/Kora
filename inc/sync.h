@@ -57,25 +57,25 @@ typedef msgque* msgque_handle;
 #define MSGQUE_LEN(pmsgq) ((pmsgq)->que.len)
 #define MSGQUE_FULL(pmsgq) ((pmsgq)->que.len == (pmsgq)->que.max)
 
-void msgque_init(msgque_handle mq, int nitems, int size);
-msgque_handle msgque_create(int nitems, int size);
-int msgque_delete(msgque_handle mq);
+void msgq_init(msgque_handle mq, int nitems, int size);
+msgque_handle msgq_create(int nitems, int size);
+int msgq_delete(msgque_handle mq);
 
-int msgque_push(msgque_handle mq, void *item, u_int wait_ticks);
-int msgque_try_push(msgque *mq, u_int wait_ticks);
-void msgque_overwrite(msgque_handle mq, void *item);
-void msgque_overwrite_isr(msgque *mq, void *item);
+int msgq_push(msgque_handle mq, void *item, u_int wait_ticks);
+int msgq_try_push(msgque *mq, u_int wait_ticks);
+void msgq_overwrite(msgque_handle mq, void *item);
+void msgq_overwrite_isr(msgque *mq, void *item);
 
-int msgque_front(msgque_handle mq, void *buf, u_int wait_ticks);
-void msgque_pop(msgque_handle mq);
+int msgq_front(msgque_handle mq, void *buf, u_int wait_ticks);
+void msgq_pop(msgque_handle mq);
 
 
 /******************************** event **********************************/
 
-typedef u_short evt_bits_t;
+typedef u_int evt_bits_t;
 typedef struct event_group {
-	evt_bits_t evt_bits;
-	list block_list;
+	evt_bits_t  evt_bits;
+	list  block_list;
 } evt_group;
 typedef evt_group* evt_group_handle;
 
@@ -92,4 +92,5 @@ void evt_group_set_isr(evt_group_handle grp, evt_bits_t bits);
 void evt_group_clear(evt_group_handle grp, evt_bits_t bits);
 void evt_group_clear_isr(evt_group_handle grp, evt_bits_t bits);
 
-#endif
+
+#endif // _SYNC_H

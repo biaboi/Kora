@@ -4,7 +4,7 @@
 #include "port.h"
 
 #define CFG_ALLOW_DYNAMIC_ALLOC  	1
-#define UNVS_HEAP_SIZE 				(u_int)(20 * 1024)
+#define CFG_KORA_HEAP_SIZE 			(u_int)(20 * 1024)
 
 #define CFG_ENABLE_PROFILER 		1
 

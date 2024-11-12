@@ -10,7 +10,7 @@
 static void wakeup(list *blklst){
 	if (LIST_NOT_EMPTY(blklst)){
 		base_node *first = blklst->dmy.next;
-		task_ready(EVENT_TO_TCB(first));
+		task_ready(EVENT_NODE_TO_TCB(first));
 		enter_critical();
 	}
 }
@@ -19,7 +19,7 @@ static void wakeup(list *blklst){
 static void wakeup_isr(list *blklst){
 	if (LIST_NOT_EMPTY(blklst)){
 		base_node *first = blklst->dmy.next;
-		task_ready_isr(EVENT_TO_TCB(first));	
+		task_ready_isr(EVENT_NODE_TO_TCB(first));	
 	}
 }
 
@@ -29,11 +29,8 @@ extern u_int lock_nesting;
 
 /************************** counting semaphore ****************************/
 /*
-	1.contain two operations: wait and signal
-
-	2.in most cases, signal_task is not that important, so it will not be block
-	  if exceed the maximum counting
-	
+	In most cases, signal_task is not that important, so it will not be block
+	if exceed the maximum counting
 */
 
 void sem_init(cntsem *s, int max_cnt, int init_cnt){
@@ -113,7 +110,9 @@ int sem_signal_isr(cntsem *s){
 
 
 /******************************** mutex ********************************/
-
+/*
+	Mutex can handles priority inversion correctly
+*/
 void mutex_init(mutex* mtx){
 	mtx->bkp_prio = 0;
 	mtx->lock_owner = NULL;
@@ -187,8 +186,25 @@ void mutex_unlock(mutex *mtx){
 }
 
 /******************************** message queue ********************************/
+/*
+	When a large amount of data needs to be transferred, threads will use a common buffer,
+	message queue only send the pointer to the buffer. 
 
-void msgque_init(msgque *mq, int nitems, int size){
+	In this case, you need to wait for the queue to empty a place, then write the buffer,
+	and then write the pointer to the queue.
+
+	msgque_try_push() is used to handle this situation like this:
+
+	int ret = msgque_try_push(queue, xticks);
+	if (ret == RET_SUCCESS){
+		enter_critical();
+		write_buffer(buffer, data, size);
+		msgque_overwrite(queue, buffer);
+		exit_critical();
+	}
+*/
+
+void msgq_init(msgque *mq, int nitems, int size){
 	void *buf = (void*)((u_int)mq + sizeof(msgque));
 	queue_init((queue*)mq, buf, nitems, size);
 
@@ -197,19 +213,19 @@ void msgque_init(msgque *mq, int nitems, int size){
 }
 
 
-msgque* msgque_create(int nitems, int size){
+msgque* msgq_create(int nitems, int size){
 	if (nitems == 0 || size == 0)
 		return NULL;
 	msgque *mq = malloc(sizeof(msgque) + nitems*size);
 	if (!mq)
 		return NULL;
 
-	msgque_init(mq, nitems, size);
+	msgq_init(mq, nitems, size);
 	return mq;
 }
 
 
-int msgque_delete(msgque *mq){
+int msgq_delete(msgque *mq){
 	int stat = ((queue*)mq)->len | mq->wb_list.list_len 
 					   		     | mq->rb_list.list_len;
 	if (stat != 0)
@@ -220,7 +236,7 @@ int msgque_delete(msgque *mq){
 }
 
 
-int msgque_push(msgque *mq, void *item, u_int wait_ticks){
+int msgq_push(msgque *mq, void *item, u_int wait_ticks){
 	os_assert(lock_nesting == 0);
 
 	enter_critical();
@@ -244,7 +260,7 @@ int msgque_push(msgque *mq, void *item, u_int wait_ticks){
 }
 
 
-int msgque_try_push(msgque *mq, u_int wait_ticks){
+int msgq_try_push(msgque *mq, u_int wait_ticks){
 	os_assert(lock_nesting == 0);
 
 	enter_critical();
@@ -266,7 +282,7 @@ int msgque_try_push(msgque *mq, u_int wait_ticks){
 }
 
 
-void msgque_overwrite(msgque *mq, void *item){
+void msgq_overwrite(msgque *mq, void *item){
 	enter_critical();
 
 	queue_push((queue*)mq, item);
@@ -276,13 +292,14 @@ void msgque_overwrite(msgque *mq, void *item){
 }
 
 
-void msgque_overwrite_isr(msgque *mq, void *item){
+void msgq_overwrite_isr(msgque *mq, void *item){
 	queue_push((queue*)mq, item);
 	wakeup_isr(&mq->rb_list);
 }
 
 
-int msgque_front(msgque *mq, void *buf, u_int wait_ticks){
+// only get the front item in queue, must use msgque_pop() after this to pop item
+int msgq_front(msgque *mq, void *buf, u_int wait_ticks){
 	enter_critical();
 	while (1){
 		if (!QUEUE_EMPTY((queue*)mq)){
@@ -303,7 +320,7 @@ int msgque_front(msgque *mq, void *buf, u_int wait_ticks){
 }
 
 
-void msgque_pop(msgque *mq){
+void msgq_pop(msgque *mq){
 	enter_critical();
 	queue *que = &mq->que;
 	if (que->len > 0){
@@ -317,6 +334,9 @@ void msgque_pop(msgque *mq){
 
 
 /******************************** event **********************************/
+/*
+	support 24 bits event
+*/
 
 void evt_group_init(evt_group_handle grp, evt_bits_t init_bits){
 	grp->evt_bits = init_bits;
@@ -348,10 +368,8 @@ int evt_group_delete(evt_group_handle grp){
 
 static bool is_bits_satisfy(evt_group_handle grp, base_node *task_event_node){
 	char opt = task_event_node->value >> 30;
-	task_event_node->value &= (~0x40000000);
-
 	evt_bits_t seted_bits = grp->evt_bits;
-	evt_bits_t req_bits = task_event_node->value;
+	evt_bits_t req_bits = task_event_node->value & 0x00FFFFFF;
 
 	if (opt == EVT_GROUP_OPT_OR){
 		seted_bits &= (~req_bits);
@@ -368,6 +386,8 @@ static bool is_bits_satisfy(evt_group_handle grp, base_node *task_event_node){
 
 
 int evt_group_wait(evt_group_handle grp, evt_bits_t bits, bool clr, int opt, u_int wait_ticks){
+	os_assert(bits < 0x01000000);
+
 	enter_critical();
 
 	base_node *enode = &current_tcb->event_node;
@@ -391,6 +411,7 @@ int evt_group_wait(evt_group_handle grp, evt_bits_t bits, bool clr, int opt, u_i
 	return RET_SUCCESS;
 }
 
+
 void evt_group_set(evt_group_handle grp, evt_bits_t bits){
 	enter_critical();
 
@@ -399,7 +420,7 @@ void evt_group_set(evt_group_handle grp, evt_bits_t bits){
 
 	while ((iter = iter->next) != &grp->block_list.dmy){
 		if (is_bits_satisfy(grp, iter)){
-			task_ready(EVENT_TO_TCB(iter));
+			task_ready(EVENT_NODE_TO_TCB(iter));
 			enter_critical();
 		}
 	}
@@ -407,13 +428,14 @@ void evt_group_set(evt_group_handle grp, evt_bits_t bits){
 	exit_critical();	
 }
 
+
 void evt_group_set_isr(evt_group_handle grp, evt_bits_t bits){
 	grp->evt_bits |= bits;
 	base_node *iter = &grp->block_list.dmy;
 
 	while ((iter = iter->next) != &grp->block_list.dmy){
 		if (is_bits_satisfy(grp, iter))
-			task_ready_isr(EVENT_TO_TCB(iter));
+			task_ready_isr(EVENT_NODE_TO_TCB(iter));
 	}
 }
 
@@ -430,3 +452,4 @@ void evt_group_clear(evt_group_handle grp, evt_bits_t bits){
 void evt_group_clear_isr(evt_group_handle grp, evt_bits_t bits){
 	grp->evt_bits &= (~bits);
 }
+

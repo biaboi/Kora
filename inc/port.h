@@ -7,6 +7,9 @@ void enter_critical(void);
 void exit_critical(void);
 int get_highest_priority(void);
 void start_first_task(void);
+void port_stack_init(vfunc code, void *para, u_char *rt_stack);
+void enable_os_tick(void);
+
 
 #define NVIC_ICSR_REG 		(*((volatile u_int *)0xe000ed04))
 #define NVIC_PENDSV_SET 	(u_int)(1u << 28)
@@ -21,10 +24,8 @@ void start_first_task(void);
 // #define SYSTICK_PRIORITY 	((u_int)(0xEFu << 24))   // =14
 
 #define os_tick_handler 	SysTick_Handler
-
 #define rt_stk_init    		port_stack_init
-void port_stack_init(vfunc code, void *para, u_char *rt_stack);
 
-void enable_os_tick(void);
+
 
 #endif

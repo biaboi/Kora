@@ -8,7 +8,7 @@
 
 /*
                 higher addrress
-    +---------------------------------+	
+    +---------------------------------+
     |                                 |	
     |       task control block        |
     |                                 |
@@ -39,11 +39,12 @@ typedef struct task_control_block{
 typedef tcb_t* task_handle;
 
 
-#define PRIORITY_LOWEST     (u_int)(CFG_MAX_PRIOS+1)
+#define PRIORITY_LOWEST     (u_int)(CFG_MAX_PRIOS-1)
 #define PRIORITY_HIGHEST    (u_int)1
 
-#define STATE_TO_TCB(pnode) (tcb_t*)((u_int)(pnode) - sizeof(char*))
-#define EVENT_TO_TCB(pnode) (tcb_t*)((u_int)(pnode) - offsetof(tcb_t, event_node))
+
+#define STATE_NODE_TO_TCB(pnode) (tcb_t*)((u_int)(pnode) - offsetof(tcb_t, state_node))
+#define EVENT_NODE_TO_TCB(pnode) (tcb_t*)((u_int)(pnode) - offsetof(tcb_t, event_node))
 
 #define FOREVER UINT_MAX
 
