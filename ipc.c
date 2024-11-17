@@ -1,6 +1,6 @@
 #include "inc/KoraConfig.h"
 
-#include "inc/sync.h"
+#include "inc/ipc.h"
 #include "inc/alloc.h"
 #include "inc/task.h"
 #include "inc/assert.h"
@@ -9,7 +9,7 @@
 
 static void wakeup(list *blklst){
 	if (LIST_NOT_EMPTY(blklst)){
-		base_node *first = blklst->dmy.next;
+		task_node_t *first = blklst->dmy.next;
 		task_ready(EVENT_NODE_TO_TCB(first));
 		enter_critical();
 	}
@@ -18,7 +18,7 @@ static void wakeup(list *blklst){
 
 static void wakeup_isr(list *blklst){
 	if (LIST_NOT_EMPTY(blklst)){
-		base_node *first = blklst->dmy.next;
+		task_node_t *first = blklst->dmy.next;
 		task_ready_isr(EVENT_NODE_TO_TCB(first));	
 	}
 }
@@ -76,7 +76,7 @@ int sem_wait(cntsem *s, u_int wait_ticks){
 		if (s->count > 0)
 			break;
 
-		wait_ticks = get_task_left_sleep_time(current_tcb);
+		wait_ticks = get_task_left_sleep_tick(current_tcb);
 	}
 
 	s->count -= 1;
@@ -187,8 +187,9 @@ void mutex_unlock(mutex *mtx){
 
 /******************************** message queue ********************************/
 /*
-	When a large amount of data needs to be transferred, threads will use a common buffer,
-	message queue only send the pointer to the buffer. 
+	When a large amount of data needs to be transferred, 
+	to avoid a large number of meaningless copies,
+	threads will use a common buffer and use message queue to send the pointer to the buffer. 
 
 	In this case, you need to wait for the queue to empty a place, then write the buffer,
 	and then write the pointer to the queue.
@@ -198,8 +199,8 @@ void mutex_unlock(mutex *mtx){
 	int ret = msgque_try_push(queue, xticks);
 	if (ret == RET_SUCCESS){
 		enter_critical();
-		write_buffer(buffer, data, size);
-		msgque_overwrite(queue, buffer);
+		write_buffer(buffer_point, data, size);
+		msgque_overwrite(queue, buffer_point);
 		exit_critical();
 	}
 */
@@ -255,7 +256,7 @@ int msgq_push(msgque *mq, void *item, u_int wait_ticks){
 
 		block(&mq->wb_list, wait_ticks);
 
-		wait_ticks = get_task_left_sleep_time(current_tcb);
+		wait_ticks = get_task_left_sleep_tick(current_tcb);
 	}
 }
 
@@ -277,7 +278,7 @@ int msgq_try_push(msgque *mq, u_int wait_ticks){
 
 		block(&mq->wb_list, wait_ticks);
 		
-		wait_ticks = get_task_left_sleep_time(current_tcb);
+		wait_ticks = get_task_left_sleep_tick(current_tcb);
 	}
 }
 
@@ -315,7 +316,7 @@ int msgq_front(msgque *mq, void *buf, u_int wait_ticks){
 
 		block(&mq->rb_list, wait_ticks);
 
-		wait_ticks = get_task_left_sleep_time(current_tcb);
+		wait_ticks = get_task_left_sleep_tick(current_tcb);
 	}
 }
 
@@ -366,7 +367,7 @@ int evt_group_delete(evt_group_handle grp){
 }
 
 
-static bool is_bits_satisfy(evt_group_handle grp, base_node *task_event_node){
+static bool is_bits_satisfy(evt_group_handle grp, task_node_t *task_event_node){
 	char opt = task_event_node->value >> 30;
 	evt_bits_t seted_bits = grp->evt_bits;
 	evt_bits_t req_bits = task_event_node->value & 0x00FFFFFF;
@@ -385,19 +386,19 @@ static bool is_bits_satisfy(evt_group_handle grp, base_node *task_event_node){
 }
 
 
-int evt_group_wait(evt_group_handle grp, evt_bits_t bits, bool clr, int opt, u_int wait_ticks){
+int evt_wait(evt_group_handle grp, evt_bits_t bits, bool clr, int opt, u_int wait_ticks){
 	os_assert(bits < 0x01000000);
 
 	enter_critical();
 
-	base_node *enode = &current_tcb->event_node;
+	task_node_t *enode = &current_tcb->event_node;
 	enode->value = (u_int)bits;
 	enode->value |= (opt << 30);
 
 	if (is_bits_satisfy(grp, enode) == false){
 		block(&grp->block_list, wait_ticks);
 
-		wait_ticks = get_task_left_sleep_time(current_tcb);
+		wait_ticks = get_task_left_sleep_tick(current_tcb);
 		if (wait_ticks == 0){
 			exit_critical();
 			return ERR_TIME_OUT;
@@ -412,11 +413,11 @@ int evt_group_wait(evt_group_handle grp, evt_bits_t bits, bool clr, int opt, u_i
 }
 
 
-void evt_group_set(evt_group_handle grp, evt_bits_t bits){
+void evt_set(evt_group_handle grp, evt_bits_t bits){
 	enter_critical();
 
 	grp->evt_bits |= bits;
-	base_node *iter = &grp->block_list.dmy;
+	task_node_t *iter = &grp->block_list.dmy;
 
 	while ((iter = iter->next) != &grp->block_list.dmy){
 		if (is_bits_satisfy(grp, iter)){
@@ -429,9 +430,9 @@ void evt_group_set(evt_group_handle grp, evt_bits_t bits){
 }
 
 
-void evt_group_set_isr(evt_group_handle grp, evt_bits_t bits){
+void evt_set_isr(evt_group_handle grp, evt_bits_t bits){
 	grp->evt_bits |= bits;
-	base_node *iter = &grp->block_list.dmy;
+	task_node_t *iter = &grp->block_list.dmy;
 
 	while ((iter = iter->next) != &grp->block_list.dmy){
 		if (is_bits_satisfy(grp, iter))
@@ -440,7 +441,7 @@ void evt_group_set_isr(evt_group_handle grp, evt_bits_t bits){
 }
 
 
-void evt_group_clear(evt_group_handle grp, evt_bits_t bits){
+void evt_clear(evt_group_handle grp, evt_bits_t bits){
 	enter_critical();
 
 	grp->evt_bits &= (~bits);
@@ -449,7 +450,7 @@ void evt_group_clear(evt_group_handle grp, evt_bits_t bits){
 }
 
 
-void evt_group_clear_isr(evt_group_handle grp, evt_bits_t bits){
+void evt_clear_isr(evt_group_handle grp, evt_bits_t bits){
 	grp->evt_bits &= (~bits);
 }
 

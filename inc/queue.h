@@ -1,7 +1,7 @@
 #ifndef _QUEUE_H
 #define _QUEUE_H
 
-#include "prjdef.h"
+#include "KoraDef.h"
 
 typedef struct queue {
 	void *head;

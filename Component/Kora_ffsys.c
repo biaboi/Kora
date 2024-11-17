@@ -17,7 +17,7 @@
 
 
 	void ff_memfree (void* mblock){
-		free(mblock);
+		queue_free(mblock);
 	}
 
 #endif
@@ -25,28 +25,28 @@
 
 #if FF_FS_REENTRANT 
 	
- #if CFG_ALLOW_DYNAMIC_ALLOC == 1
-	static mutex_handle Mutex[FF_VOLUMES + 1];
+ // #if CFG_ALLOW_DYNAMIC_ALLOC == 1
+// 	static mutex_handle Mutex[FF_VOLUMES + 1];
 
-	int ff_mutex_create(int vol){
-		Mutex[vol] = mutex_create();
-		return Mutex[vol] != NULL;
-	}
+// 	int ff_mutex_create(int vol){
+// 		Mutex[vol] = mutex_create();
+// 		return Mutex[vol] != NULL;
+// 	}
 
-	void ff_mutex_delete(int vol){
-		mutex_delete(Mutex[vol]);
-	}
+// 	void ff_mutex_delete(int vol){
+// 		mutex_delete(Mutex[vol]);
+// 	}
 
-	int ff_mutex_take(int vol){
-		mutex_lock(Mutex[vol]);
-		return 1;
-	}
+// 	int ff_mutex_take(int vol){
+// 		mutex_lock(Mutex[vol]);
+// 		return 1;
+// 	}
 
-	void ff_mutex_give(int vol){
-		mutex_unlock(Mutex[vol]);
-	}
+// 	void ff_mutex_give(int vol){
+// 		mutex_unlock(Mutex[vol]);
+// 	}
 
- #else
+ // #else
 	static mutex Mutex[FF_VOLUMES + 1];
 
 	int ff_mutex_create(int vol){
@@ -66,7 +66,7 @@
 	void ff_mutex_give(int vol){
 		mutex_unlock(Mutex+vol);
 	}
- #endif
+ // #endif
 
 
 #endif	/* FF_FS_REENTRANT */

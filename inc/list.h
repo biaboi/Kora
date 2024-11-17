@@ -1,26 +1,31 @@
 #ifndef _OS_LIST_H
 #define _OS_LIST_H
 
-#include "prjdef.h"
+#include "KoraDef.h"
 
 
 struct list;
 
-typedef struct base_node {
-	struct base_node *next;
-	struct base_node *prev;
+typedef struct dll_node {
+	struct dll_node *next;
+	struct dll_node *prev;
+} dll_node;
+
+typedef struct task_node {
+	struct task_node *next;
+	struct task_node *prev;
 	struct list *leader;
 	u_int value;
-} base_node;
+} task_node_t;
 
 
 typedef struct list {
-	base_node dmy;
-	base_node *iterator;
+	task_node_t dmy;
+	task_node_t *iterator;
 	int list_len;	
 } list;
 
-#define BASE_NODE_INIT(pnode) ((pnode)->leader = NULL)
+#define TASK_NODE_INIT(pnode) ((pnode)->leader = NULL)
 #define IS_ORPHAN_NODE(pnode) ((pnode)->leader == NULL)
 
 #define LIST_LEN(plst) ((plst)->list_len)
@@ -28,10 +33,10 @@ typedef struct list {
 #define LIST_NOT_EMPTY(plst) ((plst)->list_len != 0)
 
 void list_init(list *lst);
-int list_insert(list *lst, base_node *new);
-int list_insert_end(list *lst, base_node* new);
-int list_remove(base_node *node);
-base_node* list_get_first(list *lst);
+int list_insert(list *lst, task_node_t *new);
+int list_insert_end(list *lst, task_node_t* new);
+int list_remove(task_node_t *node);
+task_node_t* list_get_first(list *lst);
 
 
 #endif

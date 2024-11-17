@@ -1,9 +1,9 @@
 #ifndef _UNVS_H
 #define _UNVS_H
 
-#include "prjdef.h"
+#include "KoraDef.h"
 #include "task.h"
-#include "sync.h"
+#include "ipc.h"
 #include "alloc.h"
 #include "list.h"
 #include "assert.h"

@@ -2,7 +2,7 @@
 #define _SYNC_H
 
 #include <limits.h>
-#include "prjdef.h"
+#include "KoraDef.h"
 #include "list.h"
 #include "queue.h"
 #include "task.h"
@@ -86,11 +86,11 @@ void evt_group_init(evt_group_handle grp, evt_bits_t init_bits);
 evt_group_handle evt_group_create(evt_bits_t init_bits);
 int evt_group_delete(evt_group_handle grp);
 
-int evt_group_wait(evt_group_handle grp, evt_bits_t bits, bool clr, int opt, u_int wait_ticks);
-void evt_group_set(evt_group_handle grp, evt_bits_t bits);
-void evt_group_set_isr(evt_group_handle grp, evt_bits_t bits);
-void evt_group_clear(evt_group_handle grp, evt_bits_t bits);
-void evt_group_clear_isr(evt_group_handle grp, evt_bits_t bits);
+int evt_wait(evt_group_handle grp, evt_bits_t bits, bool clr, int opt, u_int wait_ticks);
+void evt_set(evt_group_handle grp, evt_bits_t bits);
+void evt_set_isr(evt_group_handle grp, evt_bits_t bits);
+void evt_clear(evt_group_handle grp, evt_bits_t bits);
+void evt_clear_isr(evt_group_handle grp, evt_bits_t bits);
 
 
 #endif // _SYNC_H

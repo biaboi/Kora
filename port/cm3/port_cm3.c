@@ -1,13 +1,13 @@
 #include "main.h"
-#include "inc/prjdef.h"
-
+#include "KoraConfig.h"
 
 #define EXCRET_MSP_HANDLE		0xFFFFFFF1
 #define EXCRET_MSP_THREAD		0xFFFFFFF9
 #define EXCRET_PSP_THREAD		0xFFFFFFFD
 
+typedef unsigned int u_int;
 
-unsigned int lock_nesting = 0;
+extern u_int lock_nesting;
 
 // disable all interrpution except NMI and HardFault
 void enter_critical(void){
@@ -29,6 +29,18 @@ void exit_critical(void){
 } 
 
 
+void task_self_delete(void);
+void port_rt_stack_init(vfunc code, void *para, u_char *rt_stack){
+	u_int *pt = (u_int*)rt_stack;
+	*--pt = (u_int)0x01000000;   		// xpsr
+	*--pt = (u_int)code;				// pc
+	*--pt = (u_int)task_self_delete;	// lr
+	pt -= 4;
+	*--pt = (u_int)para;				// r0
+	*--pt = EXCRET_PSP_THREAD;   	// lr in handler
+}
+
+
 __asm int get_highest_priority(void){
 	extern ready_lists_prio
 	PRESERVE8
@@ -39,23 +51,6 @@ __asm int get_highest_priority(void){
 	clz 	r0, r1
 	bx		lr
 	nop
-}
-
-
-void enable_os_tick(void){
-	SysTick->CTRL |= 0x1; 	// enable systick
-}
-
-
-void task_self_delete(void);
-void port_stack_init(vfunc code, void *para, u_char *rt_stack){
-	u_int *pt = (u_int*)rt_stack;
-	*--pt = (u_int)0x01000000;   		// xpsr
-	*--pt = (u_int)code;				// pc
-	*--pt = (u_int)task_self_delete;	// lr
-	pt -= 4;
-	*--pt = (u_int)para;				// r0
-	*--pt = EXCRET_PSP_THREAD;   	// lr in handler
 }
 
 
@@ -74,10 +69,6 @@ __asm void PendSV_Handler(void){
 	ldr  	r2, =current_tcb		// r2 = &current_tcb
 	ldr  	r1, [r2] 
 
-	tst 	r14, #0x10				// check if previous context used fpu, if true, stack fpu registers
-	it 		eq
-	vstmdbeq 	r0!, {s16 - s31}	// stmdbeq instruction is used for pushing fpu register
-
 	stmdb  	r0!, {r4 - r11, r14}
 	str  	r0, [r1] 				// save new sp to the first member of tcb
 	/* manually push end */
@@ -92,10 +83,6 @@ __asm void PendSV_Handler(void){
 	ldr  	r1, [r2]
 	ldr  	r0, [r1] 				// r0 = top_of_stack
 	ldmia	r0!, {r4 - r11, r14}
-
-	tst 	r14, #0x10
-	it 		eq
-	vldmiaeq 	r0!, {s16 - s31}
 
 	msr 	psp, r0
 
@@ -148,7 +135,7 @@ mysvc
 
 // After reset, system enters the privileged level and use msp, to switch to unprivileged level
 // and use psp, need to set correlation registers in isr functions. 
-__asm void start_first_task(void){
+static __asm void _start_first_task(void){
 	PRESERVE8
 	ldr 	r0, =NVIC_VTOR_REG
 	ldr 	r0, [r0]
@@ -162,4 +149,18 @@ __asm void start_first_task(void){
 }
 
 
+#define NVIC_SHPR3_REG		(*(volatile u_int*)0xE000ED20)
+#define PENDSV_PRIORITY 	((u_int)(0xFFul << 16))		// =15
+#define SYSTICK_PRIORITY 	((u_int)(0xFFul << 24))		// =15
+
+void start_first_task(void){
+	lock_nesting = 0;
+
+	NVIC_SHPR3_REG |= PENDSV_PRIORITY;
+	NVIC_SHPR3_REG |= SYSTICK_PRIORITY;
+
+	SysTick_Config(CFG_CPU_CLOCK_HZ / CFG_TICK_PER_SEC);  // declared in core_cm4.h
+	SysTick->CTRL |= 0x1;  // enable systick
+	_start_first_task();
+}
 

@@ -10,11 +10,11 @@ void list_init(list *lst){
 }
 
 
-int list_insert_end(list *lst, base_node *new) {
+int list_insert_end(list *lst, task_node_t *new) {
 	if (new->leader == lst)
 		return lst->list_len;
 
-	base_node *dh = &(lst->dmy);
+	task_node_t *dh = &(lst->dmy);
 	new->leader = lst;
 	new->prev = dh->prev;
 	new->next = dh;
@@ -26,11 +26,11 @@ int list_insert_end(list *lst, base_node *new) {
 
 
 // sort by new node's value
-int list_insert(list *lst, base_node *new){
+int list_insert(list *lst, task_node_t *new){
 	if (new->leader == lst)
 		return lst->list_len;
 	
-	base_node *it = lst->dmy.next;
+	task_node_t *it = lst->dmy.next;
 	while (it != &(lst->dmy) && new->value >= it->value)
 		it = it->next;
 
@@ -43,7 +43,7 @@ int list_insert(list *lst, base_node *new){
 	return ++(lst->list_len);
 }
 
-int list_remove(base_node *node){
+int list_remove(task_node_t *node){
 	list *lst = node->leader;
 	if (lst == NULL)
 		return -1;
@@ -57,7 +57,7 @@ int list_remove(base_node *node){
 } 
 
 
-base_node* list_get_first(list *lst){
+task_node_t* list_get_first(list *lst){
 	if (lst->list_len == 0)
 		return NULL;
 	return lst->dmy.next;
