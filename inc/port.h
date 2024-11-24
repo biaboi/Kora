@@ -1,14 +1,11 @@
 #ifndef _PORT_H
 #define _PORT_H
 
-// port.h for cortex m4 with vfp
 
 #include "KoraDef.h"
 
 void enter_critical(void);
 void exit_critical(void);
-
-
 
 #define NVIC_ICSR_REG 		(*((volatile u_int *)0xE000ED04))
 #define NVIC_PENDSV_SET 	(u_int)(1u << 28)

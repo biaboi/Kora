@@ -1,7 +1,8 @@
-#include "inc/KoraConfig.h"
+#include "KoraConfig.h"
 
-#include "inc/task.h"
-#include "inc/assert.h"
+#include "task.h"
+#include "assert.h"
+#include "alloc.h"
 #include <string.h>
 
 /* use next fit algorithm */
@@ -10,7 +11,11 @@ splist *wait_for_free = NULL;
 
 #if CFG_ALLOW_DYNAMIC_ALLOC
 
-static u_char unaligned_heap[CFG_KORA_HEAP_SIZE];
+
+static heap_info_t info = {CFG_HEAP_SIZE}; 
+static int min_left = CFG_HEAP_SIZE;
+
+static u_char unaligned_heap[CFG_HEAP_SIZE];
 static u_char *heap = unaligned_heap;
 
 typedef struct header {
@@ -24,7 +29,6 @@ typedef struct memory_block{
 } block_t;
 
 
-static u_int remain_size = CFG_KORA_HEAP_SIZE;
 static block_t *end;
 static block_t *iter;
 
@@ -33,11 +37,11 @@ static void heap_init(void){
 	int remainder = (u_int)unaligned_heap & ~ALIGN4MASK;
 	if (remainder != 0){
 		heap += 4 - remainder; 
-		remain_size -= 4 - remainder;
+		info.remain_size -= 4 - remainder;
 	}
 
 	block_t *first = (block_t*)heap;
-	first->size = CFG_KORA_HEAP_SIZE;
+	first->size = CFG_HEAP_SIZE;
 	first->next = first;
 
 	end = first;
@@ -56,7 +60,7 @@ void* os_malloc(int size){
 		first_time_call = false;
 	}
 
-	if (size == 0 || size + sizeof(header_t) >= remain_size){
+	if (size == 0 || size + sizeof(header_t) >= info.remain_size){
 		enable_task_switch();
 		return NULL;
 	}
@@ -117,7 +121,11 @@ void* os_malloc(int size){
 	((header_t*)new_block)->magic = 0x6D6Du;
 /* write info to header_t */
 
-	remain_size -= rqsz;
+	info.remain_size -= rqsz;
+	info.malloc_count += 1;
+	if (info.remain_size < min_left)
+		min_left = info.remain_size;
+
 	enable_task_switch();
 	return (void*)((u_int)new_block + sizeof(header_t));
 }
@@ -147,7 +155,9 @@ void os_free(void *addr){
 	disable_task_switch();
 	block_t* rls = (block_t*)header;
 	const u_int rls_size = header->size + sizeof(header_t);
-	remain_size += rls_size;
+
+	info.free_count += 1;
+	info.remain_size += rls_size;
 
 	// if whole memory used up
 	if (end == NULL) {
@@ -208,14 +218,30 @@ void queue_free(void *addr){
 bool is_heap_addr(void *addr){
 	u_int _addr = (u_int)addr;
 	u_int _heap = (u_int)heap;
-	if (_addr < _heap || _addr >= _heap + CFG_KORA_HEAP_SIZE)
+	if (_addr < _heap || _addr >= _heap + CFG_HEAP_SIZE)
 		return false;
 	return true;
 }
 
 
 int get_heap_remain_size(void){
-	return remain_size;
+	return info.remain_size;
+}
+
+
+heap_info_t* get_heap_status(void){
+	info.peak_heap_usage = CFG_HEAP_SIZE - min_left;
+	
+	info.max_free_block_size = end->size;
+	info.left_block_num = 1;
+	block_t *iter = end->next;
+	while (iter != end){
+		info.left_block_num += 1;
+		if (iter->size > info.max_free_block_size)
+			info.max_free_block_size = iter->size;
+		iter = iter->next;
+	}
+	return &info;
 }
 
 

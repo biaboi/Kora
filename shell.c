@@ -1,15 +1,18 @@
 #include "KoraConfig.h"
 #include "ipc.h"
 #include "string.h"
+#include "stdio.h"
+#include "port.h"
+#include "alloc.h"
 
 #if CFG_SHELL_DEBUG 
- #if CFG_DEBUG_MODE == 0
-  #error "only shell in debug mode"
- #endif
 
+#define NL  "\r\n"
 
-int get_task_info(task_handle tsk, char *buf);
-
+int set_task_table_title(void);
+int get_task_info(task_handle tsk);
+int setheap_info_table_title(void);
+int output_heap_status(void);
 
 static char input_buf[40];
 static char output_buf[100];
@@ -26,8 +29,10 @@ typedef struct {
 
 
 int __task(void);
+int __heap(void);
 
 command commands[] = { {"task", __task}, 
+					   {"heap", __heap}, 
 };
 
 #define commands_size (sizeof(commands) / sizeof(command))
@@ -57,16 +62,14 @@ static int shell_exec(char * cmd){
 }
 
 
-void shell_input(char *msg){
-	strncpy(input_buf, msg, 40);
+__weak void shell_input(char *msg, int size){
+	strncpy(input_buf, msg, size);
 	input_buf[39] = 0;
-	evt_set(&shell_cmd_recv_evt, CMD_RECV_EVT);
+	evt_set_isr(&shell_cmd_recv_evt, CMD_RECV_EVT);
 }
 
 
-void shell_output(char* buf, int size){
-
-}
+void shell_output(char* buf, int size);
 
 
 void shell_task(void *nothing){
@@ -94,69 +97,111 @@ void shell_init(void){
 /****************************** shell commands ******************************/
 
 static int __task(void) {
-	if (strncmp(tokens[1], "all", CFG_TASK_NAME_LEN)){
-		return RET_FAILED;	
+	int size;
+
+	if (strncmp(tokens[1], "all", CFG_TASK_NAME_LEN) == 0){
+		size = set_task_table_title();
+		shell_output(output_buf, size);
+
+		task_handle iter = traversing_tasks(1);
+		size = get_task_info(iter);
+		shell_output(output_buf, size);
+		
+		while ((iter = traversing_tasks(0)) != NULL){
+			size = get_task_info(iter);
+			shell_output(output_buf, size);
+		}
+
+		shell_output(NL, 2);
+		return RET_SUCCESS;
 	}
 
 	task_handle the_task = find_task(tokens[1]);
 	if (the_task != NULL){
-		int size = get_task_info(the_task, output_buf);
+		size = set_task_table_title();
 		shell_output(output_buf, size);
+
+		size = get_task_info(the_task);
+		shell_output(output_buf, size);
+		shell_output(NL, 2);
 		return RET_SUCCESS;
 	}
 
 	return RET_FAILED;
 }
 
+
+#if CFG_ALLOW_DYNAMIC_ALLOC
+	static int __heap(void){
+		int size;
+
+		size = setheap_info_table_title();
+		shell_output(output_buf, size);
+
+		size = output_heap_status();
+		shell_output(output_buf, size);
+		
+		return RET_SUCCESS;
+	}
+
+#else
+	static int __heap(void){
+		return RET_FAILED;
+	}
+
+#endif
+
+
 /**************************** shell commands end ****************************/
 
-
-char* ui_to_s(int n, char *str) {
-    int i = 0, j = 0;
-    do {
-        str[i++] = n%10 + '0';
-        n /= 10;
-    } while(n);
-    str[i] = '\0';
-
-    while (j < i/2) {
-        str[j] 	   ^=  str[i-1-j];
-        str[i-1-j] ^=  str[j];
-        str[j]     ^=  str[i-1-j];
-        ++j;
-    } 
-    return str;
-}
-
-
 static char *stat_to_str[5] = {
-	"running", "ready", "sleeping", "blocking", "suspending",
+	"running", "ready", "sleep", "block", "suspend",
 };
 
 
-// get these info: name, priority, status, occupied_tick, min_stack_left
-int get_task_info(task_handle tsk, char *buf){
-	char *write_in = buf;
-	strncat(write_in, tsk->name, CFG_TASK_NAME_LEN);
-	write_in += CFG_TASK_NAME_LEN + 4;
+static int set_task_table_title(void){
+	return sprintf(output_buf, "%-10s  %6s  %8s   %6s   %9s \r\n", 
+				"name",
+				"prio",
+				"status",
+				"min_stack",
+				"cpu_usage" );
+}
 
-	ui_to_s(tsk->priority, write_in);
-	write_in += 4;
+// get these info: name, priority, status, min_stack, occupied_tick
+int get_task_info(task_handle tsk){
+	int usage = get_os_tick() / 100;
+	usage = tsk->occupied_tick / usage;
 
-	strncat(write_in, stat_to_str[(int)(tsk->status)], 12);
-	write_in += 12;
+	return sprintf(output_buf, "%-10s  %6d  %8s   %4d   %9d \r\n",  
+				tsk->name, 
+				tsk->priority, 
+				stat_to_str[(int)(tsk->status)], 
+				tsk->min_stack,
+				usage );
+}
 
- #if CFG_DEBUG_MODE
-	ui_to_s(tsk->occupied_tick, write_in);
-	write_in += 10;
- #endif
 
- #if CFG_SAFETY_CHECK
-	ui_to_s(tsk->min_stack_left, write_in);
-	write_in += 8;
- #endif
+static int setheap_info_table_title(void){
+	return sprintf(output_buf, "%6s %10s %10s %14s %15s %12s \r\n", 
+				"remain",
+				"alloced",
+				"freed",
+				"peak usage",
+				"biggst block",
+				"freg size"  );
+}
 
-	return (int)(write_in - buf);
+
+static int output_heap_status(void){
+	heap_info_t *info = get_heap_status();
+	return sprintf(output_buf, "%6d %10d %10d %14d %15d %12d \r\n",  
+				info->remain_size,
+				info->malloc_count,
+				info->free_count,
+				info->peak_heap_usage,
+				info->max_free_block_size,
+				info->left_block_num  );
 }
 
 

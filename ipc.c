@@ -1,24 +1,24 @@
-#include "inc/KoraConfig.h"
+#include "KoraConfig.h"
+#include "ipc.h"
+#include "alloc.h"
+#include "task.h"
+#include "assert.h"
 
-#include "inc/ipc.h"
-#include "inc/alloc.h"
-#include "inc/task.h"
-#include "inc/assert.h"
 #include <string.h>
 
 
-static void wakeup(list *blklst){
+static void wakeup(kernel_list *blklst){
 	if (LIST_NOT_EMPTY(blklst)){
-		task_node_t *first = blklst->dmy.next;
+		kernel_node *first = blklst->dmy.next;
 		task_ready(EVENT_NODE_TO_TCB(first));
 		enter_critical();
 	}
 }
 
 
-static void wakeup_isr(list *blklst){
+static void wakeup_isr(kernel_list *blklst){
 	if (LIST_NOT_EMPTY(blklst)){
-		task_node_t *first = blklst->dmy.next;
+		kernel_node *first = blklst->dmy.next;
 		task_ready_isr(EVENT_NODE_TO_TCB(first));	
 	}
 }
@@ -339,14 +339,14 @@ void msgq_pop(msgque *mq){
 	support 24 bits event
 */
 
-void evt_group_init(evt_group_handle grp, evt_bits_t init_bits){
+void evt_group_init(event_t grp, evt_bits_t init_bits){
 	grp->evt_bits = init_bits;
 	list_init(&grp->block_list);
 }
 
 
-evt_group_handle evt_group_create(evt_bits_t init_bits){
-	evt_group_handle grp = malloc(sizeof(cntsem));
+event_t evt_group_create(evt_bits_t init_bits){
+	event_t grp = malloc(sizeof(cntsem));
 	if (grp == NULL){
 		return NULL;
 	}
@@ -355,7 +355,7 @@ evt_group_handle evt_group_create(evt_bits_t init_bits){
 }
 
 
-int evt_group_delete(evt_group_handle grp){
+int evt_group_delete(event_t grp){
 	if (!is_heap_addr(grp))
 		return RET_FAILED;
 
@@ -367,7 +367,7 @@ int evt_group_delete(evt_group_handle grp){
 }
 
 
-static bool is_bits_satisfy(evt_group_handle grp, task_node_t *task_event_node){
+static bool is_bits_satisfy(event_t grp, kernel_node *task_event_node){
 	char opt = task_event_node->value >> 30;
 	evt_bits_t seted_bits = grp->evt_bits;
 	evt_bits_t req_bits = task_event_node->value & 0x00FFFFFF;
@@ -386,12 +386,12 @@ static bool is_bits_satisfy(evt_group_handle grp, task_node_t *task_event_node){
 }
 
 
-int evt_wait(evt_group_handle grp, evt_bits_t bits, bool clr, int opt, u_int wait_ticks){
+int evt_wait(event_t grp, evt_bits_t bits, bool clr, int opt, u_int wait_ticks){
 	os_assert(bits < 0x01000000);
 
 	enter_critical();
 
-	task_node_t *enode = &current_tcb->event_node;
+	kernel_node *enode = &current_tcb->event_node;
 	enode->value = (u_int)bits;
 	enode->value |= (opt << 30);
 
@@ -413,11 +413,11 @@ int evt_wait(evt_group_handle grp, evt_bits_t bits, bool clr, int opt, u_int wai
 }
 
 
-void evt_set(evt_group_handle grp, evt_bits_t bits){
+void evt_set(event_t grp, evt_bits_t bits){
 	enter_critical();
 
 	grp->evt_bits |= bits;
-	task_node_t *iter = &grp->block_list.dmy;
+	kernel_node *iter = &grp->block_list.dmy;
 
 	while ((iter = iter->next) != &grp->block_list.dmy){
 		if (is_bits_satisfy(grp, iter)){
@@ -430,9 +430,9 @@ void evt_set(evt_group_handle grp, evt_bits_t bits){
 }
 
 
-void evt_set_isr(evt_group_handle grp, evt_bits_t bits){
+void evt_set_isr(event_t grp, evt_bits_t bits){
 	grp->evt_bits |= bits;
-	task_node_t *iter = &grp->block_list.dmy;
+	kernel_node *iter = &grp->block_list.dmy;
 
 	while ((iter = iter->next) != &grp->block_list.dmy){
 		if (is_bits_satisfy(grp, iter))
@@ -441,7 +441,7 @@ void evt_set_isr(evt_group_handle grp, evt_bits_t bits){
 }
 
 
-void evt_clear(evt_group_handle grp, evt_bits_t bits){
+void evt_clear(event_t grp, evt_bits_t bits){
 	enter_critical();
 
 	grp->evt_bits &= (~bits);
@@ -450,7 +450,7 @@ void evt_clear(evt_group_handle grp, evt_bits_t bits){
 }
 
 
-void evt_clear_isr(evt_group_handle grp, evt_bits_t bits){
+void evt_clear_isr(event_t grp, evt_bits_t bits){
 	grp->evt_bits &= (~bits);
 }
 

@@ -26,7 +26,7 @@
 #if FF_FS_REENTRANT 
 	
  // #if CFG_ALLOW_DYNAMIC_ALLOC == 1
-// 	static mutex_handle Mutex[FF_VOLUMES + 1];
+// 	static mutex_t Mutex[FF_VOLUMES + 1];
 
 // 	int ff_mutex_create(int vol){
 // 		Mutex[vol] = mutex_create();

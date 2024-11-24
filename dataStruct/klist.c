@@ -1,7 +1,7 @@
-#include "../inc/list.h"
+#include "../inc/klist.h"
 
 
-void list_init(list *lst){
+void list_init(kernel_list *lst){
 	lst->dmy.next = lst->dmy.prev = &(lst->dmy);
 	lst->dmy.leader = lst;
 	lst->dmy.value = 0;
@@ -10,11 +10,11 @@ void list_init(list *lst){
 }
 
 
-int list_insert_end(list *lst, task_node_t *new) {
+int list_insert_end(kernel_list *lst, kernel_node *new) {
 	if (new->leader == lst)
 		return lst->list_len;
 
-	task_node_t *dh = &(lst->dmy);
+	kernel_node *dh = &(lst->dmy);
 	new->leader = lst;
 	new->prev = dh->prev;
 	new->next = dh;
@@ -26,11 +26,11 @@ int list_insert_end(list *lst, task_node_t *new) {
 
 
 // sort by new node's value
-int list_insert(list *lst, task_node_t *new){
+int list_insert(kernel_list *lst, kernel_node *new){
 	if (new->leader == lst)
 		return lst->list_len;
 	
-	task_node_t *it = lst->dmy.next;
+	kernel_node *it = lst->dmy.next;
 	while (it != &(lst->dmy) && new->value >= it->value)
 		it = it->next;
 
@@ -43,8 +43,9 @@ int list_insert(list *lst, task_node_t *new){
 	return ++(lst->list_len);
 }
 
-int list_remove(task_node_t *node){
-	list *lst = node->leader;
+
+int list_remove(kernel_node *node){
+	kernel_list *lst = node->leader;
 	if (lst == NULL)
 		return -1;
 	if (lst->iterator == node)
@@ -55,11 +56,3 @@ int list_remove(task_node_t *node){
 	node->leader = NULL;
 	return --(lst->list_len);
 } 
-
-
-task_node_t* list_get_first(list *lst){
-	if (lst->list_len == 0)
-		return NULL;
-	return lst->dmy.next;
-}
-
