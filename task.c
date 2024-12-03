@@ -331,13 +331,13 @@ tcb_t* task_create(vfunc code, const char *name, void *para, u_int prio, int siz
 tcb_t* qcreate(vfunc code, int priority, int size){
 	static char nqtask = 0;
 
-	u_char *tstk = malloc(size);
-	if (!tstk)
-		return false;
+	u_char *stack = malloc(size);
+	if (!stack)
+		return NULL;
 
 	char name[] = "qtask_x";
 	name[6] = nqtask + '1';
-	tcb_t *ret = task_init(code, name, NULL, priority, tstk, size);
+	tcb_t *ret = task_init(code, name, NULL, priority, stack, size);
 	nqtask++;
 	return ret;
 }
@@ -480,13 +480,13 @@ static void idle_task(void *nothing){
 			free(addr);
 		}
 
-		// calculate the cpu utilization
+		// calculate the cpu utilization, update every 400 ticks
 		if (last_tick != os_tick_count){
 			++idle_tick;
 			last_tick = os_tick_count;
 		}
-		if (os_tick_count - begin_tick >= 500){
-			cpu_utilization = 100 - idle_tick/5;
+		if (os_tick_count - begin_tick >= 400){
+			cpu_utilization = 100 - idle_tick/4;
 			begin_tick = os_tick_count;
 			idle_tick = 0;
 		}
@@ -497,7 +497,7 @@ static void idle_task(void *nothing){
 
 // retval: 0-100
 int get_cpu_util(void){
-	if (os_tick_count - begin_tick > 500)
+	if (os_tick_count - begin_tick > 400)
 		return 100;
 	return cpu_utilization;
 }
@@ -512,11 +512,6 @@ void Kora_start(void){
 	list_init(&sleep_list);
 	current_tcb = task_init(idle_task, "idle", NULL, CFG_MAX_PRIOS-1, 
 			idle_stack, CFG_IDLE_TASK_STACK_SIZE);
-
- #if CFG_SHELL_DEBUG
-	void shell_init(void);
-	shell_init();
- #endif
 
 	os_tick_count = 0;
 	switch_disable = 0;

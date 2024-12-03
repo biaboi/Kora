@@ -9,17 +9,12 @@
 
 #define NL  "\r\n"
 
-int set_task_table_title(void);
-int get_task_info(task_handle tsk);
-int setheap_info_table_title(void);
-int output_heap_status(void);
 
-static char input_buf[40];
-static char output_buf[100];
-evt_group shell_cmd_recv_evt; 
-static char *tokens[6];
-
-#define CMD_RECV_EVT  1
+static char     input_buf[40];
+static char     output_buf[100];
+static char    *tokens[6];
+evt_group       shell_cmd_recv_evt; 
+static data_trans_func    shell_output = NULL;
 
 
 typedef struct {
@@ -62,15 +57,14 @@ static int shell_exec(char * cmd){
 }
 
 
-__weak void shell_input(char *msg, int size){
+void shell_input(char *msg, int size){
 	strncpy(input_buf, msg, size);
 	input_buf[39] = 0;
 	evt_set_isr(&shell_cmd_recv_evt, CMD_RECV_EVT);
 }
 
 
-void shell_output(char* buf, int size);
-
+#define CMD_RECV_EVT  1
 
 void shell_task(void *nothing){
 	while (1){
@@ -85,16 +79,22 @@ void shell_task(void *nothing){
 }
 
 
-static u_char shell_task_stack[1100];
+static u_char task_stack[1100];
 
-void shell_init(void){
+void shell_init(int prio, data_trans_func output){
+	shell_output = output;
 	evt_group_init(&shell_cmd_recv_evt, 0);
-	task_init(shell_task, "shell", NULL, CFG_SHELL_TASK_PRIO,
-		shell_task_stack, 1100);
+	task_init(shell_task, "shell", NULL, prio, task_stack, 1100);
 }
 
 
 /****************************** shell commands ******************************/
+
+int set_task_table_title(void);
+int get_task_info(task_handle tsk);
+int setheap_info_table_title(void);
+int output_heap_status(void);
+
 
 static int __task(void) {
 	int size;

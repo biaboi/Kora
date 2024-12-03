@@ -5,19 +5,12 @@
 #include "task.h"
 #include "ipc.h"
 #include "alloc.h"
-#include "klist.h"
 #include "assert.h"
 
 
 void enter_critical(void);
 void exit_critical(void);
 void Kora_start(void);
-
-/*
-	hardware config: 
-		SVC, Systick, Pendsv enable and priority set
-		Systick frequence set
-*/
 
 
 #endif

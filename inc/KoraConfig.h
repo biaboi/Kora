@@ -8,15 +8,13 @@
 #define CFG_MAX_PRIOS               16
 #define CFG_MIN_STACK_SIZE          400
 
+
 #define CFG_ALLOW_DYNAMIC_ALLOC     1
 #define CFG_HEAP_SIZE               (u_int)(20 * 1024)
 
 #define CFG_KORA_ASSERT             1
 
 #define CFG_USE_LOG		            0
-
-#define CFG_SHELL_DEBUG             0
-#define CFG_SHELL_TASK_PRIO         6
 
 
 #include "port.h"
