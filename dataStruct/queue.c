@@ -1,5 +1,5 @@
-#include "../inc/klist.h"
-#include "../inc/queue.h"
+#include "list.h"
+#include "queue.h"
 #include <string.h>
 
 // circular queue
@@ -15,7 +15,7 @@ void queue_init(queue *que, void *buf, int nitems, int size){
 // if queue is full, the item at the front of queue will be overwritten
 // retval:queue's length
 int queue_push(queue *que, void *item){
-	if (QUEUE_FULL(que))
+	if (QUEUE_IS_FULL(que))
 		que->front = (que->front+1) % que->max;
 	else
 		que->len += 1;
@@ -30,7 +30,7 @@ int queue_push(queue *que, void *item){
 
 
 int queue_front(queue *que, void *buf){
-	if (QUEUE_EMPTY(que))
+	if (QUEUE_IS_EMPTY(que))
 		return RET_FAILED;
 
 	int size = que->item_size;

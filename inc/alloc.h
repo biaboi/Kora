@@ -2,16 +2,17 @@
 #define _ALLOC_H
 
 #include "KoraConfig.h"
+#include "Kora.h"
 
 #if CFG_ALLOW_DYNAMIC_ALLOC
 
 typedef struct {
-	u_int remain_size;
-	short malloc_count;
-	short free_count;
-	int peak_heap_usage; 
-	int max_free_block_size;
-	int left_block_num;
+	u_int   remain_size;
+	short   malloc_count;
+	short   free_count;
+	int     peak_heap_usage; 
+	int     max_free_block_size;
+	int     left_block_num;
 } heap_info_t;
 
 

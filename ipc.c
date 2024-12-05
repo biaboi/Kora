@@ -1,24 +1,20 @@
+#include "Kora.h"
 #include "KoraConfig.h"
-#include "ipc.h"
-#include "alloc.h"
-#include "task.h"
-#include "assert.h"
-
 #include <string.h>
 
 
-static void wakeup(kernel_list *blklst){
+static void wakeup(list_t *blklst){
 	if (LIST_NOT_EMPTY(blklst)){
-		kernel_node *first = blklst->dmy.next;
+		list_node_t *first = blklst->dmy.next;
 		task_ready(EVENT_NODE_TO_TCB(first));
 		enter_critical();
 	}
 }
 
 
-static void wakeup_isr(kernel_list *blklst){
+static void wakeup_isr(list_t *blklst){
 	if (LIST_NOT_EMPTY(blklst)){
-		kernel_node *first = blklst->dmy.next;
+		list_node_t *first = blklst->dmy.next;
 		task_ready_isr(EVENT_NODE_TO_TCB(first));	
 	}
 }
@@ -303,7 +299,7 @@ void msgq_overwrite_isr(msgque *mq, void *item){
 int msgq_front(msgque *mq, void *buf, u_int wait_ticks){
 	enter_critical();
 	while (1){
-		if (!QUEUE_EMPTY((queue*)mq)){
+		if (!QUEUE_IS_EMPTY((queue*)mq)){
 			queue_front((queue*)mq, buf);
 			exit_critical();
 			return RET_SUCCESS;
@@ -367,7 +363,7 @@ int evt_group_delete(event_t grp){
 }
 
 
-static bool is_bits_satisfy(event_t grp, kernel_node *task_event_node){
+static bool is_bits_satisfy(event_t grp, list_node_t *task_event_node){
 	char opt = task_event_node->value >> 30;
 	evt_bits_t seted_bits = grp->evt_bits;
 	evt_bits_t req_bits = task_event_node->value & 0x00FFFFFF;
@@ -391,7 +387,7 @@ int evt_wait(event_t grp, evt_bits_t bits, bool clr, int opt, u_int wait_ticks){
 
 	enter_critical();
 
-	kernel_node *enode = &current_tcb->event_node;
+	list_node_t *enode = &current_tcb->event_node;
 	enode->value = (u_int)bits;
 	enode->value |= (opt << 30);
 
@@ -417,7 +413,7 @@ void evt_set(event_t grp, evt_bits_t bits){
 	enter_critical();
 
 	grp->evt_bits |= bits;
-	kernel_node *iter = &grp->block_list.dmy;
+	list_node_t *iter = &grp->block_list.dmy;
 
 	while ((iter = iter->next) != &grp->block_list.dmy){
 		if (is_bits_satisfy(grp, iter)){
@@ -432,7 +428,7 @@ void evt_set(event_t grp, evt_bits_t bits){
 
 void evt_set_isr(event_t grp, evt_bits_t bits){
 	grp->evt_bits |= bits;
-	kernel_node *iter = &grp->block_list.dmy;
+	list_node_t *iter = &grp->block_list.dmy;
 
 	while ((iter = iter->next) != &grp->block_list.dmy){
 		if (is_bits_satisfy(grp, iter))

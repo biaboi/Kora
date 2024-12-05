@@ -42,10 +42,10 @@ void port_rt_stack_init(vfunc code, void *para, u_char *rt_stack){
 
 
 __asm int get_highest_priority(void){
-	extern ready_lists_prio
+	extern prio_bitmap
 	PRESERVE8
 
-	ldr  	r0, =ready_lists_prio
+	ldr  	r0, =prio_bitmap
 	ldr  	r0, [r0]
 	rbit 	r1, r0
 	clz 	r0, r1

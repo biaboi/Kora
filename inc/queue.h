@@ -4,18 +4,20 @@
 #include "KoraDef.h"
 
 typedef struct queue {
-	void *head;
-	int item_size;
-	int max;
+	void   *head;
+	short   item_size;
+	short   max;
 
-	int front;
-	int rear;
-	int len;
+	short   front;
+	short   rear;
+
+	int     len;
 } queue;
 
-#define QUEUE_FULL(que) ((que)->len >= (que)->max)
-#define QUEUE_EMPTY(que) ((que)->len == 0)
-#define QUEUE_LEN(que) ((que)->len)
+
+#define QUEUE_IS_FULL(que)   ((que)->len >= (que)->max)
+#define QUEUE_IS_EMPTY(que)  ((que)->len == 0)
+#define QUEUE_LEN(que)       ((que)->len)
 
 void queue_init(queue *que, void *buf, int nitems, int size);
 int queue_push(queue *que, void *item);

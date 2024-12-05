@@ -1,7 +1,4 @@
 #include "Kora.h"
-
-#define   FILE_SYSTEM    FATFS
-
 #include "ff.h"
 
 
@@ -30,10 +27,10 @@
 
 #if FF_FS_REENTRANT 
 
-	static mutex Mutex[FF_VOLUMES + 1];
+	static mutex ff_mutex[FF_VOLUMES + 1];
 
 	int ff_mutex_create(int vol){
-		mutex_init(Mutex+vol);
+		mutex_init(ff_mutex+vol);
 		return 1;
 	}
 
@@ -42,20 +39,15 @@
 	}
 
 	int ff_mutex_take(int vol){
-		mutex_lock(Mutex+vol);
+		mutex_lock(ff_mutex+vol);
 		return 1;
 	}
 
 	void ff_mutex_give(int vol){
-		mutex_unlock(Mutex+vol);
+		mutex_unlock(ff_mutex+vol);
 	}
 
 
 #endif	/* FF_FS_REENTRANT */
-
-
-
-/******************************* kora file system *******************************/
-
 
 

@@ -1,8 +1,5 @@
+#include "Kora.h"
 #include "KoraConfig.h"
-
-#include "task.h"
-#include "assert.h"
-#include "alloc.h"
 #include <string.h>
 
 /* use next fit algorithm */

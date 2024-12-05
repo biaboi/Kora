@@ -1,11 +1,8 @@
-#include "KoraConfig.h"
-#include "ipc.h"
-#include "string.h"
+#include "Kora.h"
+#include "shell.h"
 #include "stdio.h"
-#include "port.h"
-#include "alloc.h"
+#include "string.h"
 
-#if CFG_SHELL_DEBUG 
 
 #define NL  "\r\n"
 
@@ -56,6 +53,7 @@ static int shell_exec(char * cmd){
 	return RET_FAILED;
 }
 
+#define CMD_RECV_EVT  1
 
 void shell_input(char *msg, int size){
 	strncpy(input_buf, msg, size);
@@ -64,7 +62,6 @@ void shell_input(char *msg, int size){
 }
 
 
-#define CMD_RECV_EVT  1
 
 void shell_task(void *nothing){
 	while (1){
@@ -103,11 +100,11 @@ static int __task(void) {
 		size = set_task_table_title();
 		shell_output(output_buf, size);
 
-		task_handle iter = traversing_tasks(1);
+		task_handle iter = traversing_tasks();
 		size = get_task_info(iter);
 		shell_output(output_buf, size);
 		
-		while ((iter = traversing_tasks(0)) != NULL){
+		while ((iter = traversing_tasks()) != NULL){
 			size = get_task_info(iter);
 			shell_output(output_buf, size);
 		}
@@ -150,7 +147,6 @@ static int __task(void) {
 	}
 
 #endif
-
 
 /**************************** shell commands end ****************************/
 
@@ -205,5 +201,4 @@ static int output_heap_status(void){
 }
 
 
-#endif // CFG_SHELL_DEBUG
 

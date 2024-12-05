@@ -18,6 +18,5 @@
 
 
 #include "port.h"
-#include "KoraDef.h"
 
 #endif

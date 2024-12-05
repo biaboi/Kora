@@ -1,29 +1,24 @@
-#include "inc/KoraConfig.h"
-
-#include "inc/klist.h"
-#include "inc/task.h"
-#include "inc/assert.h"
-#include "inc/alloc.h"
-
+#include "KoraConfig.h"
+#include "Kora.h"
 #include <string.h>
-#include <limits.h>
 
 tcb_t * volatile current_tcb = NULL;
 
-kernel_list ready_lists[CFG_MAX_PRIOS];
-u_int ready_lists_prio;
-kernel_list sleep_list;
+static list_t          ready_lists[CFG_MAX_PRIOS];
+static list_node_t    *task_iter[CFG_MAX_PRIOS];
+static list_t          sleep_list;
+static list_t          all_tasks;
 
-extern u_int lock_nesting;
-extern int switch_disable;
+extern u_int   lock_nesting;
+extern int     switch_disable;
 
-bool flag_actively_sched = false;
-u_int lock_nesting = 0;
-static int highest_prio = CFG_MAX_PRIOS-1;
-static u_int os_tick_count;
-static int switch_disable = 1;
-int sys_task_num = 0;
-tcb_t *tasks_head = NULL;
+u_int      prio_bitmap = 0;
+bool       flag_actively_sched = false;
+u_int      lock_nesting = 0;
+static int       highest_prio = CFG_MAX_PRIOS-1;
+static u_int     os_tick_count = 0;
+static int       switch_disable = 1;
+
 
 // these functions defined in port.c
 void start_first_task(void); 
@@ -37,7 +32,8 @@ void port_rt_stack_init(vfunc code, void *para, u_char *rt_stack);
 // 			0: highest priority has not changed 
 static int add_to_ready(task_handle tsk){ 
 	u_int prio = tsk->priority;
-	ready_lists_prio |= 1 << prio; 
+	prio_bitmap |= 1 << prio; 
+
 	list_insert_end(ready_lists+prio, &tsk->state_node);
 	if (prio < highest_prio){
 		highest_prio = prio;
@@ -49,9 +45,12 @@ static int add_to_ready(task_handle tsk){
 
 static void remove_from_ready(task_handle tsk){
 	u_int prio = tsk->priority;
-	if (ready_lists[prio].list_len == 1){
-		ready_lists_prio &= ~(1 << prio);
-	}
+	if (ready_lists[prio].list_len == 1)
+		prio_bitmap &= ~(1 << prio);
+
+	if (task_iter[prio] == &tsk->state_node)
+		task_iter[prio] = tsk->state_node.next;
+
 	list_remove(&tsk->state_node);
 	highest_prio = get_highest_priority();
 }
@@ -76,7 +75,7 @@ int modify_priority(task_handle tsk, int new){
 extern u_int os_tick_count;
 // if sleep time overflow(sleep tick + os_tick_count > UINT_MAX), reset every task's sleep time and reset tick count 
 static void os_tick_reset(void){
-	kernel_node *iter = sleep_list.dmy.next;
+	list_node_t *iter = sleep_list.dmy.next;
 	for (int i = 0; i < sleep_list.list_len; ++i){
 		iter->value -= os_tick_count;
 		iter = iter->next;
@@ -128,7 +127,7 @@ void task_ready_isr(task_handle tsk){
 
 
 // ready -> block
-void block(kernel_list *blklst, u_int overtime_ticks){
+void block(list_t *blklst, u_int overtime_ticks){
 	os_assert(lock_nesting == 1);
 	os_assert(switch_disable == 0);
 
@@ -151,7 +150,7 @@ void block(kernel_list *blklst, u_int overtime_ticks){
 }
 
 
-void block_isr(task_handle tsk, kernel_list *blklst, u_int overtime_ticks){
+void block_isr(task_handle tsk, list_t *blklst, u_int overtime_ticks){
 	tsk->status = blocking;
 	if (overtime_ticks != 0){
 		remove_from_ready(tsk);
@@ -234,27 +233,27 @@ char* get_task_name(task_handle tsk){
 }
 
 
-task_handle traversing_tasks(int opt){
-	static tcb_t *iter;
+task_handle traversing_tasks(void){
+	static list_node_t *iter = &(all_tasks.dmy);
 
-	if (opt == 1){
-		iter = tasks_head;
-		return tasks_head;
-	}
+	iter = iter->next;
 
-	else {
-		iter = iter->tcb_next;
-		return iter;
-	}
+	if (iter == &(all_tasks.dmy))
+		return NULL;
+
+	return LINK_TO_TCB(iter);
 }
 
 
 task_handle find_task(char *name){
-	tcb_t *iter = tasks_head;
-	while (iter != NULL){
-		if (strncmp(name, iter->name, CFG_TASK_NAME_LEN) == 0)
-			return iter;
-		iter = iter->tcb_next;
+	list_node_t *iter = all_tasks.dmy.next;
+	
+	while (iter != &(all_tasks.dmy)){
+		tcb_t *ptsk = LINK_TO_TCB(iter);
+
+		if (strncmp(name, ptsk->name, CFG_TASK_NAME_LEN) == 0)
+			return ptsk;
+		iter = iter->next;
 	}
 	return NULL;
 }
@@ -270,29 +269,15 @@ void tcb_init(tcb_t *tcb, u_int prio, const char *name, u_char *start){
 	tcb->top_of_stack = (u_char*)((u_int)tcb - sizeof(u_int)*17);
 	tcb->start_addr = start;
 	tcb->status = ready;
-	TASK_NODE_INIT(&tcb->state_node);
-	TASK_NODE_INIT(&tcb->event_node);
+	LIST_NODE_INIT(&tcb->state_node);
+	LIST_NODE_INIT(&tcb->event_node);
+	LIST_NODE_INIT(&tcb->link);
 
 	tcb->magic_n = TCB_MAGIC_NUM;
-	tcb->min_stack = 99999;
+	tcb->min_stack = 999999;
 	tcb->occupied_tick = 0;
 
-
-	if (tasks_head == NULL){
-		tcb->tcb_next = NULL;
-		tasks_head = tcb;
-	}
-	else if (prio < tasks_head->priority){
-		tcb->tcb_next = tasks_head;
-		tasks_head = tcb;
-	}
-	else {
-		tcb_t *iter = tasks_head;
-		while (iter->tcb_next != NULL && prio >= iter->tcb_next->priority)
-			iter = iter->tcb_next;
-		tcb->tcb_next = iter->tcb_next;
-		iter->tcb_next = tcb;
-	}
+	list_insert_end(&all_tasks, &tcb->link);
 }
 
 
@@ -302,8 +287,11 @@ tcb_t* task_init(vfunc code, const char *name, void *para, u_int prio, u_char *s
 
 	static bool first_time_call = true;
 	if (first_time_call){
-		for (int i = 0; i < CFG_MAX_PRIOS; ++i)
+		for (int i = 0; i < CFG_MAX_PRIOS; ++i){
 			list_init(&ready_lists[i]);
+			task_iter[i] = &(ready_lists[i].dmy);
+		}
+		list_init(&all_tasks);
 		first_time_call = false;
 	}
 	
@@ -313,7 +301,6 @@ tcb_t* task_init(vfunc code, const char *name, void *para, u_int prio, u_char *s
 	tcb_init(new_tcb, prio, name, stk);
 	port_rt_stack_init(code, para, (u_char*)new_tcb);
 	add_to_ready(new_tcb);
-	sys_task_num += 1;
 
 	return new_tcb;
 }
@@ -355,17 +342,7 @@ void task_delete(task_handle tsk){
 	if (is_heap_addr(tsk->start_addr))
 		queue_free(tsk->start_addr);
 
-	sys_task_num -= 1;
-	// remove task from task linked list
-	if (tasks_head == tsk){
-		tasks_head = tsk->tcb_next;
-	}
-	else {
-		tcb_t *iter = tasks_head;
-		while (iter->tcb_next != tsk)
-			iter = iter->tcb_next;
-		iter->tcb_next = tsk->tcb_next;
-	}
+	list_remove(&tsk->link);
 
 	exit_critical();
 	call_sched();
@@ -402,9 +379,9 @@ bool is_scheduler_running(void){
 }
 
 
-// called in pendsv to find next task to execute
+// find next task to execute
 void schedule(void){
-	kernel_node **it = &(ready_lists[highest_prio].iterator);
+	list_node_t **it = &(task_iter[highest_prio]);
 	(*it) = (*it)->next;
 	if (*it == &(ready_lists[highest_prio].dmy))
 		(*it) = (*it)->next;
@@ -416,7 +393,7 @@ void schedule(void){
 
 
 static void wake_task_from_sleep(void){
-	kernel_node *first = sleep_list.dmy.next;
+	list_node_t *first = sleep_list.dmy.next;
 	if (os_tick_count >= first->value){
 		tcb_t *tcb = STATE_NODE_TO_TCB(first);
 		list_remove(&tcb->event_node);
@@ -462,8 +439,8 @@ void os_tick_handler(void){
 	call_sched_isr();
 }
 
-#define CFG_IDLE_TASK_STACK_SIZE  	512
-static u_char idle_stack[CFG_IDLE_TASK_STACK_SIZE];
+#define IDLE_TASK_STACK_SIZE  	512
+static u_char idle_stack[IDLE_TASK_STACK_SIZE];
 
 static u_int cpu_utilization;
 static u_int begin_tick = 0;
@@ -508,10 +485,16 @@ int get_os_tick(void){
 }
 
 
+int get_task_num(void){
+	return LIST_LEN(&all_tasks);
+}
+
+
 void Kora_start(void){
 	list_init(&sleep_list);
+
 	current_tcb = task_init(idle_task, "idle", NULL, CFG_MAX_PRIOS-1, 
-			idle_stack, CFG_IDLE_TASK_STACK_SIZE);
+			idle_stack, IDLE_TASK_STACK_SIZE);
 
 	os_tick_count = 0;
 	switch_disable = 0;

@@ -2,7 +2,7 @@
 #define _PORT_H
 
 
-#include "KoraDef.h"
+#include "Kora.h"
 
 void enter_critical(void);
 void exit_critical(void);
