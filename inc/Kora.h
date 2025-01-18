@@ -8,6 +8,7 @@
 #include "queue.h"
 #include <limits.h>
 
+#define KORA_VERSION    "0.67"
 
 /********************************** tasks ************************************/
 
@@ -50,12 +51,8 @@ typedef tcb_t* task_handle;
 
 #define PRIORITY_LOWEST     (u_int)(CFG_MAX_PRIOS-1)
 #define PRIORITY_HIGHEST    (u_int)1
+#define FOREVER      UINT_MAX
 
-#define FOREVER UINT_MAX
-
-#define STATE_NODE_TO_TCB(pnode) ((tcb_t*)( (u_int)(pnode) - offsetof(tcb_t, state_node)) )
-#define EVENT_NODE_TO_TCB(pnode) ((tcb_t*)( (u_int)(pnode) - offsetof(tcb_t, event_node)) )
-#define LINK_TO_TCB(pnode)       ((tcb_t*)( (u_int)(pnode) - offsetof(tcb_t, link)) )
 
 task_handle task_init(vfunc code, const char *name, void *para, u_int prio, u_char *stk, int size);
 task_handle task_create(vfunc code, const char *name, void *para, u_int prio, int size);
@@ -86,6 +83,7 @@ void disable_task_switch(void);
 void enable_task_switch(void);
 bool is_scheduler_running(void);
 task_handle get_running_task(void);
+task_handle self(void);
 int get_os_tick(void);
 int get_cpu_util(void);
 int get_task_num(void);
@@ -185,6 +183,25 @@ void evt_set_isr(event_t grp, evt_bits_t bits);
 void evt_clear(event_t grp, evt_bits_t bits);
 void evt_clear_isr(event_t grp, evt_bits_t bits);
 
+typedef enum {
+    hook_task_switched_isr = 0,  // para: 
+    hook_task_delete,
+    hook_idle,
+    hook_stack_overf_isr,
+    hook_systick_isr,
+
+    kernel_hook_nums
+} kernel_hooks_t;
 
 
+#if CFG_USE_KERNEL_HOOKS
+    extern vfunc kernel_hooks[kernel_hook_nums];
+    #define  KERNEL_HOOK_ADD(x, func)  (kernel_hooks[x] = (func))
+    #define  KERNEL_HOOK_DEL(x)        (kernel_hooks[x] = NULL)
+#else
+    #define  KERNEL_HOOK_ADD(x, func)  ((void)0)
+    #define  KERNEL_HOOK_DEL(x)        ((void)0)
 #endif
+
+
+#endif  // _KORA_H

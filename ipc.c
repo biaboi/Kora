@@ -3,6 +3,9 @@
 #include <string.h>
 
 
+#define EVENT_NODE_TO_TCB(pnode) ((tcb_t*)( (u_int)(pnode) - offsetof(tcb_t, event_node)) )
+
+
 static void wakeup(list_t *blklst){
 	if (LIST_NOT_EMPTY(blklst)){
 		list_node_t *first = blklst->dmy.next;

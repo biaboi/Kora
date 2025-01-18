@@ -19,6 +19,16 @@ static int       highest_prio = CFG_MAX_PRIOS-1;
 static u_int     os_tick_count = 0;
 static int       switch_disable = 1;
 
+#define STATE_NODE_TO_TCB(pnode) ((tcb_t*)( (u_int)(pnode) - offsetof(tcb_t, state_node)) )
+#define LINK_TO_TCB(pnode)       ((tcb_t*)( (u_int)(pnode) - offsetof(tcb_t, link)) )
+
+
+#if CFG_USE_KERNEL_HOOKS
+	vfunc kernel_hooks[kernel_hook_nums] = {0};
+	#define EXCUTE_HOOK(x, para) do{ if (kernel_hooks[x]) (kernel_hooks[x])(para);} while (0)
+#else
+	#define EXCUTE_HOOK(x, para) ((void)0)
+#endif
 
 // these functions defined in port.c
 void start_first_task(void); 
@@ -49,9 +59,9 @@ static void remove_from_ready(task_handle tsk){
 		prio_bitmap &= ~(1 << prio);
 
 	if (task_iter[prio] == &tsk->state_node)
-		task_iter[prio] = tsk->state_node.next;
+			task_iter[prio] = tsk->state_node.next;
 
-	list_remove(&tsk->state_node);
+		list_remove(&tsk->state_node);
 	highest_prio = get_highest_priority();
 }
 
@@ -226,6 +236,11 @@ task_handle get_running_task(void){
 }
 
 
+task_handle self(void){
+	return current_tcb;
+}
+
+
 char* get_task_name(task_handle tsk){
 	if (tsk == NULL)
 		tsk = current_tcb;
@@ -333,6 +348,7 @@ tcb_t* qcreate(vfunc code, int priority, int size){
 void task_delete(task_handle tsk){
 	enter_critical();
 
+	EXCUTE_HOOK(hook_task_delete, tsk);
 	if (get_task_state(tsk) == ready)
 		remove_from_ready(tsk);
 	else
@@ -387,8 +403,9 @@ void schedule(void){
 		(*it) = (*it)->next;
 	current_tcb = STATE_NODE_TO_TCB(*it);
 
-	if (current_tcb->magic_n != TCB_MAGIC_NUM)
+	if (current_tcb->magic_n != TCB_MAGIC_NUM){
 		while (1) ;
+	}
 }
 
 
@@ -406,8 +423,10 @@ static void wake_task_from_sleep(void){
 // check whether task's stack used up
 static void stack_safety_check(void){
 	int free_stk_size = current_tcb->top_of_stack - current_tcb->start_addr;
-	if (free_stk_size < 40)
+	if (free_stk_size < 40){
+		EXCUTE_HOOK(hook_stack_overf_isr, current_tcb);
 		while (1) ;
+	}
 
 	if (free_stk_size < current_tcb->min_stack)
 		current_tcb->min_stack = free_stk_size;
@@ -417,6 +436,8 @@ static void stack_safety_check(void){
 // If a task actively gives up CPU time by called call_sched(), 
 // the handler will not trigger a task switch when the next tick arrives
 void os_tick_handler(void){
+	EXCUTE_HOOK(hook_systick_isr, &os_tick_count);
+
 	if (current_tcb == NULL)
 		return;
 
@@ -468,6 +489,7 @@ static void idle_task(void *nothing){
 			idle_tick = 0;
 		}
 
+		EXCUTE_HOOK(hook_idle, NULL);
 	}
 }
 
@@ -525,6 +547,7 @@ void os_assert_failed(char *file_name, int line){
 // called via svc instruction
 void os_service(char No){
 	if (No == 1){
+		EXCUTE_HOOK(hook_task_switched_isr, current_tcb);
 		call_sched_isr();
 	}
 }

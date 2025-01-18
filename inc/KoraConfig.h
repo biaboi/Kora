@@ -2,7 +2,7 @@
 #define _UNVS_CONFIG_H
 
 
-#define CFG_CPU_CLOCK_HZ            72000000
+#define CFG_CPU_CLOCK_HZ            64000000
 #define CFG_TICK_PER_SEC            1000
 #define CFG_TASK_NAME_LEN           16
 #define CFG_MAX_PRIOS               16
@@ -14,7 +14,9 @@
 
 #define CFG_KORA_ASSERT             1
 
-#define CFG_USE_LOG		            0
+#define CFG_KERNEL_LOG		        1
+
+#define CFG_USE_KERNEL_HOOKS        1
 
 
 #include "port.h"
