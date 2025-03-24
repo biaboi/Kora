@@ -17,5 +17,7 @@ void exit_critical(void);
 
 #define os_tick_handler 	SysTick_Handler
 
+#define IS_IN_IRQ()             (__get_IPSR_s() != 0U)
+
 
 #endif

@@ -8,7 +8,7 @@
 #include "queue.h"
 #include <limits.h>
 
-#define KORA_VERSION    "0.67"
+#define KORA_VERSION    "0.69"
 
 /********************************** tasks ************************************/
 
@@ -39,7 +39,7 @@ typedef struct __tcb {
     u_int           priority;
     char            name[CFG_TASK_NAME_LEN];
     u_int           min_stack;
-    task_stat       status;
+    task_stat       state;
     list_node_t     state_node;         // state_node will be only mounted on ready_list or sleep_list
     list_node_t     event_node;          
     list_node_t     link;
@@ -53,14 +53,12 @@ typedef tcb_t* task_handle;
 #define PRIORITY_HIGHEST    (u_int)1
 #define FOREVER      UINT_MAX
 
+typedef void (*task_process_t)(task_handle, void *);
 
 task_handle task_init(vfunc code, const char *name, void *para, u_int prio, u_char *stk, int size);
 task_handle task_create(vfunc code, const char *name, void *para, u_int prio, int size);
 task_handle qcreate(vfunc code, int priority, int size);
 void task_delete(task_handle tsk);
-
-// warning: function task_ready() and block() will lead to thread switch immediately,
-//          to protect task from interruption, must enter these function with enter_cretital()
 
 int modify_priority(task_handle tsk, int new);
 void task_ready(task_handle tsk);
@@ -71,11 +69,12 @@ void block_isr(task_handle tsk, list_t *blklst, u_int wait_ticks);
 void task_suspend(task_handle tsk);
 void task_suspend_isr(task_handle tsk);
 
-task_stat get_task_stat(task_handle tsk);
+task_stat get_task_state(task_handle tsk);
 u_int get_task_left_sleep_tick(task_handle tsk);
 char* get_task_name(task_handle tsk);
 task_handle traversing_tasks(void);
 task_handle find_task(char *name);
+void foreach_task(task_process_t process, void *para);
 
 void enter_critical(void);
 void exit_critical(void);
@@ -85,11 +84,10 @@ bool is_scheduler_running(void);
 task_handle get_running_task(void);
 task_handle self(void);
 int get_os_tick(void);
-int get_cpu_util(void);
+int get_cpu_utilization(void);
 int get_task_num(void);
 
 void Kora_start(void);
-
 
 
 
@@ -183,8 +181,10 @@ void evt_set_isr(event_t grp, evt_bits_t bits);
 void evt_clear(event_t grp, evt_bits_t bits);
 void evt_clear_isr(event_t grp, evt_bits_t bits);
 
+
+
 typedef enum {
-    hook_task_switched_isr = 0,  // para: 
+    hook_task_switched_isr = 0,
     hook_task_delete,
     hook_idle,
     hook_stack_overf_isr,
@@ -195,7 +195,7 @@ typedef enum {
 
 
 #if CFG_USE_KERNEL_HOOKS
-    extern vfunc kernel_hooks[kernel_hook_nums];
+    extern   vfunc    kernel_hooks[kernel_hook_nums];
     #define  KERNEL_HOOK_ADD(x, func)  (kernel_hooks[x] = (func))
     #define  KERNEL_HOOK_DEL(x)        (kernel_hooks[x] = NULL)
 #else

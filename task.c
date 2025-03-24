@@ -9,8 +9,6 @@ static list_node_t    *task_iter[CFG_MAX_PRIOS];
 static list_t          sleep_list;
 static list_t          all_tasks;
 
-extern u_int   lock_nesting;
-extern int     switch_disable;
 
 u_int      prio_bitmap = 0;
 bool       flag_actively_sched = false;
@@ -19,16 +17,17 @@ static int       highest_prio = CFG_MAX_PRIOS-1;
 static u_int     os_tick_count = 0;
 static int       switch_disable = 1;
 
-#define STATE_NODE_TO_TCB(pnode) ((tcb_t*)( (u_int)(pnode) - offsetof(tcb_t, state_node)) )
-#define LINK_TO_TCB(pnode)       ((tcb_t*)( (u_int)(pnode) - offsetof(tcb_t, link)) )
+#define STATE_NODE_TO_TCB(pnode)    ((tcb_t*)( (u_int)(pnode) - offsetof(tcb_t, state_node)) )
+#define LINK_NODE_TO_TCB(pnode)     ((tcb_t*)( (u_int)(pnode) - offsetof(tcb_t, link)) )
 
 
 #if CFG_USE_KERNEL_HOOKS
 	vfunc kernel_hooks[kernel_hook_nums] = {0};
-	#define EXCUTE_HOOK(x, para) do{ if (kernel_hooks[x]) (kernel_hooks[x])(para);} while (0)
+	#define EXECUTE_HOOK(x, para) do{ if (kernel_hooks[x]) (kernel_hooks[x])(para);} while (0)
 #else
-	#define EXCUTE_HOOK(x, para) ((void)0)
+	#define EXECUTE_HOOK(x, para) ((void)0)
 #endif
+
 
 // these functions defined in port.c
 void start_first_task(void); 
@@ -37,9 +36,11 @@ void port_rt_stack_init(vfunc code, void *para, u_char *rt_stack);
 
 
 /********************************** task state **********************************/
-
-// retval: 	1: the task becomes the only and highest priority task
-// 			0: highest priority has not changed 
+/*
+@ brief: Add the task to ready_list and update highest_prio
+@ retv: 0-> highest priority has not changed 
+        1-> the task becomes the only and highest priority task
+*/
 static int add_to_ready(task_handle tsk){ 
 	u_int prio = tsk->priority;
 	prio_bitmap |= 1 << prio; 
@@ -53,6 +54,9 @@ static int add_to_ready(task_handle tsk){
 }
 
 
+/*
+@ brief: Remove the task from ready_list and update highest_prio
+*/
 static void remove_from_ready(task_handle tsk){
 	u_int prio = tsk->priority;
 	if (ready_lists[prio].list_len == 1)
@@ -61,12 +65,15 @@ static void remove_from_ready(task_handle tsk){
 	if (task_iter[prio] == &tsk->state_node)
 			task_iter[prio] = tsk->state_node.next;
 
-		list_remove(&tsk->state_node);
+	list_remove(&tsk->state_node);
 	highest_prio = get_highest_priority();
 }
 
 
-// retval: task's old priority
+/*
+@ brief: Modify the task's priority 
+@ retv: Task's old priority
+*/
 int modify_priority(task_handle tsk, int new){
 	os_assert(new < CFG_MAX_PRIOS);
 
@@ -82,8 +89,10 @@ int modify_priority(task_handle tsk, int new){
 }
 
 
-extern u_int os_tick_count;
-// if sleep time overflow(sleep tick + os_tick_count > UINT_MAX), reset every task's sleep time and reset tick count 
+/*
+@ brief: If sleep time overflow(sleep tick + os_tick_count > UINT_MAX), 
+         reset every task's sleep time and reset tick count.
+*/
 static void os_tick_reset(void){
 	list_node_t *iter = sleep_list.dmy.next;
 	for (int i = 0; i < sleep_list.list_len; ++i){
@@ -94,6 +103,9 @@ static void os_tick_reset(void){
 }
 
 
+/*
+@ brief: Add the task to sleep_list
+*/
 static void add_to_sleep(task_handle tsk, u_int xtick){
 	if (xtick > UINT_MAX-os_tick_count)
 		os_tick_reset();
@@ -104,19 +116,19 @@ static void add_to_sleep(task_handle tsk, u_int xtick){
 }
 
 
-// x -> ready
-// warning: if tsk's priority higher than all other tasks
-// 			this function will enter schedule immediately 
+/*
+@ brief: Change the state of the task to Ready
+@ note: If the task becomes the highest priority off all, it will scheduled immediately
+*/
 void task_ready(task_handle tsk){
 	os_assert(lock_nesting == 1);
 	os_assert(switch_disable == 0);
 
-	tsk->status = ready;
+	tsk->state = ready;
 	list_remove(&tsk->state_node);
 	list_remove(&tsk->event_node);
 	int has_changed = add_to_ready(tsk);
 	exit_critical();
-
 	
 	if (has_changed){
 		call_sched();
@@ -125,7 +137,7 @@ void task_ready(task_handle tsk){
 
 
 void task_ready_isr(task_handle tsk){
-	tsk->status = ready;
+	tsk->state = ready;
 	list_remove(&tsk->state_node);
 	list_remove(&tsk->event_node);
 	int has_changed = add_to_ready(tsk);
@@ -136,12 +148,17 @@ void task_ready_isr(task_handle tsk){
 }
 
 
-// ready -> block
+/*
+@ brief: Block a task that in the ready state
+@ note: To make sure that function's execution will not be interrupted,
+        must make lock_nesting == 1 before entering the function, 
+        lock_nesting is also equal to 1 when exiting function 
+*/
 void block(list_t *blklst, u_int overtime_ticks){
 	os_assert(lock_nesting == 1);
 	os_assert(switch_disable == 0);
 
-	current_tcb->status = blocking;
+	current_tcb->state = blocking;
 	if (overtime_ticks != 0){
 		remove_from_ready(current_tcb);
 		if (overtime_ticks != UINT_MAX)
@@ -155,13 +172,13 @@ void block(list_t *blklst, u_int overtime_ticks){
 	exit_critical();
 	call_sched();
 
-	// if block ends, code will continue from here
+	// if blocking ends, code will continue from here
 	enter_critical();
 }
 
 
 void block_isr(task_handle tsk, list_t *blklst, u_int overtime_ticks){
-	tsk->status = blocking;
+	tsk->state = blocking;
 	if (overtime_ticks != 0){
 		remove_from_ready(tsk);
 		if (overtime_ticks != UINT_MAX)
@@ -173,13 +190,15 @@ void block_isr(task_handle tsk, list_t *blklst, u_int overtime_ticks){
 }
 
 
-// ready -> suspend
+/*
+@ brief: Change the task state from ready to suspend
+*/
 void task_suspend(task_handle tsk){
 	enter_critical();
 	if (tsk == NULL)
 		tsk = current_tcb;
 
-	tsk->status = suspend;
+	tsk->state = suspend;
 	remove_from_ready(tsk);
 	list_remove(&tsk->event_node);
 
@@ -190,7 +209,7 @@ void task_suspend(task_handle tsk){
 
 
 void task_suspend_isr(task_handle tsk){
-	tsk->status = suspend;
+	tsk->state = suspend;
 	remove_from_ready(tsk);
 	list_remove(&tsk->event_node);
 
@@ -199,12 +218,14 @@ void task_suspend_isr(task_handle tsk){
 }
 
 
-// ready -> sleep
+/*
+@ brief: Change the task to sleep state for xticks
+*/
 void sleep(u_int xtick){
 	os_assert(switch_disable == 0);
 	enter_critical();
 
-	current_tcb->status = sleeping;
+	current_tcb->state = sleeping;
 	remove_from_ready(current_tcb);
 	add_to_sleep(current_tcb, xtick+1);
 
@@ -227,7 +248,7 @@ u_int get_task_left_sleep_tick(task_handle tsk){
 
 
 task_stat get_task_state(task_handle tsk){
-	return tsk->status;
+	return tsk->state;
 }
 
 
@@ -248,25 +269,40 @@ char* get_task_name(task_handle tsk){
 }
 
 
-task_handle traversing_tasks(void){
-	static list_node_t *iter = &(all_tasks.dmy);
+/*
+@ brief: Iterate all tasks and execute process()
+*/
+void foreach_task(task_process_t process, void *para){
+	list_node_t *iter = &(all_tasks.dmy);
 
-	iter = iter->next;
-
-	if (iter == &(all_tasks.dmy))
-		return NULL;
-
-	return LINK_TO_TCB(iter);
+	while ((iter = iter->next) != &(all_tasks.dmy)){
+		process(LINK_NODE_TO_TCB(iter), para);
+	}
 }
+
+
+// /*
+// @ brief: Iterate over the all_tasks list
+// */
+// task_handle traversing_tasks(void){
+// 	static list_node_t *iter = &(all_tasks.dmy);
+
+// 	iter = iter->next;
+
+// 	if (iter == &(all_tasks.dmy))
+// 		return NULL;
+
+// 	return LINK_NODE_TO_TCB(iter);
+// }
 
 
 task_handle find_task(char *name){
 	list_node_t *iter = all_tasks.dmy.next;
 	
 	while (iter != &(all_tasks.dmy)){
-		tcb_t *ptsk = LINK_TO_TCB(iter);
+		tcb_t *ptsk = LINK_NODE_TO_TCB(iter);
 
-		if (strncmp(name, ptsk->name, CFG_TASK_NAME_LEN) == 0)
+		if (strcmp(name, ptsk->name) == 0)
 			return ptsk;
 		iter = iter->next;
 	}
@@ -276,14 +312,16 @@ task_handle find_task(char *name){
 
 /***************************** create and delete *****************************/
 
+// used to check whether TCB data is accidentally overwritten
 #define TCB_MAGIC_NUM 	0x0F984F1Cul
-void tcb_init(tcb_t *tcb, u_int prio, const char *name, u_char *start){
+
+static void tcb_init(tcb_t *tcb, u_int prio, const char *name, u_char *start){
 	strncpy(tcb->name, name, CFG_TASK_NAME_LEN);
 	tcb->name[CFG_TASK_NAME_LEN-1] = 0;
 	tcb->priority = prio;
 	tcb->top_of_stack = (u_char*)((u_int)tcb - sizeof(u_int)*17);
 	tcb->start_addr = start;
-	tcb->status = ready;
+	tcb->state = ready;
 	LIST_NODE_INIT(&tcb->state_node);
 	LIST_NODE_INIT(&tcb->event_node);
 	LIST_NODE_INIT(&tcb->link);
@@ -321,15 +359,21 @@ tcb_t* task_init(vfunc code, const char *name, void *para, u_int prio, u_char *s
 }
 
 
+/*
+@ brief: Dynamic allocate a memory to create task
+*/
 tcb_t* task_create(vfunc code, const char *name, void *para, u_int prio, int size){
 	u_char *stack = malloc(size);
 	if (!stack)
 		return NULL;
+
 	return task_init(code, name, para, prio, stack, size);
 }
 
 
-// task create function with fewer paraments 
+/*
+@ brief: Quick create task, use less parameters
+*/
 tcb_t* qcreate(vfunc code, int priority, int size){
 	static char nqtask = 0;
 
@@ -348,7 +392,7 @@ tcb_t* qcreate(vfunc code, int priority, int size){
 void task_delete(task_handle tsk){
 	enter_critical();
 
-	EXCUTE_HOOK(hook_task_delete, tsk);
+	EXECUTE_HOOK(hook_task_delete, tsk);
 	if (get_task_state(tsk) == ready)
 		remove_from_ready(tsk);
 	else
@@ -365,7 +409,10 @@ void task_delete(task_handle tsk){
 }
 
 
-// the task's lr register points to this function for automatic deletion at the end of the task
+/*
+@ brief: During stack initialization, the task's lr register points to 
+         this function for automatic deletion at the end of the task
+*/
 void task_self_delete(void){
 	task_delete(current_tcb);
 }
@@ -374,7 +421,9 @@ void task_self_delete(void){
 /***************************** scheduler *****************************/
 
 
-// disable task switch in application layer
+/*
+@ brief: Disable task switch in application layer
+*/
 void disable_task_switch(void){
 	++switch_disable;
 }
@@ -394,13 +443,16 @@ bool is_scheduler_running(void){
 	return (bool)(switch_disable == 0);
 }
 
-
-// find next task to execute
+/*
+@ brief: Find next task to execute
+*/
 void schedule(void){
 	list_node_t **it = &(task_iter[highest_prio]);
 	(*it) = (*it)->next;
 	if (*it == &(ready_lists[highest_prio].dmy))
 		(*it) = (*it)->next;
+	
+	EXECUTE_HOOK(hook_task_switched_isr, current_tcb);
 	current_tcb = STATE_NODE_TO_TCB(*it);
 
 	if (current_tcb->magic_n != TCB_MAGIC_NUM){
@@ -420,11 +472,13 @@ static void wake_task_from_sleep(void){
 }
 
 
-// check whether task's stack used up
+/*
+@ brief: Check whether task's stack used up
+*/
 static void stack_safety_check(void){
 	int free_stk_size = current_tcb->top_of_stack - current_tcb->start_addr;
 	if (free_stk_size < 40){
-		EXCUTE_HOOK(hook_stack_overf_isr, current_tcb);
+		EXECUTE_HOOK(hook_stack_overf_isr, current_tcb);
 		while (1) ;
 	}
 
@@ -433,10 +487,14 @@ static void stack_safety_check(void){
 }
 
 
-// If a task actively gives up CPU time by called call_sched(), 
-// the handler will not trigger a task switch when the next tick arrives
+
+/*
+@ brief: 
+@ note: Action of the flag_actively_sched: If a task actively gives up CPU time by called call_sched(), 
+                the handler will not trigger a task switch when the next tick arrives
+*/
 void os_tick_handler(void){
-	EXCUTE_HOOK(hook_systick_isr, &os_tick_count);
+	EXECUTE_HOOK(hook_systick_isr, &os_tick_count);
 
 	if (current_tcb == NULL)
 		return;
@@ -460,12 +518,20 @@ void os_tick_handler(void){
 	call_sched_isr();
 }
 
+
 #define IDLE_TASK_STACK_SIZE  	512
 static u_char idle_stack[IDLE_TASK_STACK_SIZE];
 
 static u_int cpu_utilization;
 static u_int begin_tick = 0;
 
+
+/*
+@ brief: Idle task, do the following:
+           free memory using queue_free()
+           calculate cpu utilization
+           execute idle hook 
+*/
 static void idle_task(void *nothing){
 	extern splist *wait_for_free;
 
@@ -489,13 +555,15 @@ static void idle_task(void *nothing){
 			idle_tick = 0;
 		}
 
-		EXCUTE_HOOK(hook_idle, NULL);
+		EXECUTE_HOOK(hook_idle, NULL);
 	}
 }
 
 
-// retval: 0-100
-int get_cpu_util(void){
+/*
+@ brief: Use idle task to calculate cpu utilization, poor precision
+*/
+int get_cpu_utilization(void){
 	if (os_tick_count - begin_tick > 400)
 		return 100;
 	return cpu_utilization;
@@ -507,19 +575,28 @@ int get_os_tick(void){
 }
 
 
+/*
+@ brief: Get the number of existing tasks (in whatever state)
+*/
 int get_task_num(void){
 	return LIST_LEN(&all_tasks);
 }
 
 
+/*
+@ brief: Do initialization operations and start scheduler
+*/
 void Kora_start(void){
 	list_init(&sleep_list);
+
 
 	current_tcb = task_init(idle_task, "idle", NULL, CFG_MAX_PRIOS-1, 
 			idle_stack, IDLE_TASK_STACK_SIZE);
 
 	os_tick_count = 0;
 	switch_disable = 0;
+
+	// do some hardware initialization like fpu, mpu, system clock and enter first task
 	start_first_task();
 }
 
@@ -547,7 +624,6 @@ void os_assert_failed(char *file_name, int line){
 // called via svc instruction
 void os_service(char No){
 	if (No == 1){
-		EXCUTE_HOOK(hook_task_switched_isr, current_tcb);
 		call_sched_isr();
 	}
 }

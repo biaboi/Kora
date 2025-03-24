@@ -4,46 +4,59 @@
 #include "string.h"
 
 
-#define NL  "\r\n"
+#define S_NL  "\r\n"
 
+#define RECV_EVT_BIT  1
 
+static u_char   task_stack[1100];
 static char     input_buf[40];
 static char     output_buf[100];
 static char    *tokens[6];
-evt_group       shell_cmd_recv_evt; 
-static data_trans_func    shell_output = NULL;
+static evt_group     recv_evtgrp; 
+static transfer_t    output = NULL;
 
 
 typedef struct {
     const char *cmd;
     int (*handler)(void);
-} command;
+} command_t;
 
+
+/*********************************  commands declare *********************************/
 
 int __task(void);
 int __heap(void);
 
-command commands[] = { {"task", __task}, 
-					   {"heap", __heap}, 
-};
+command_t commands[] = { {"task", __task}, 
+					     {"heap", __heap},  };
 
-#define commands_size (sizeof(commands) / sizeof(command))
+#define commands_size (sizeof(commands) / sizeof(command_t))
 
 
-static int shell_parse_cmd(void){
-	int i = 0;
+/**************************** parse and execute commands ****************************/
+
+/*
+@ brief: Parse input command and save tokens to tokens[6];
+@ retv: Valid number of tokens
+*/
+static int parse_cmd(void){
+	int valid = 0;
 	char *token = strtok(input_buf, " ");
 	while (token != NULL){
-		tokens[i++] = token;
+		tokens[valid++] = token;
 		if (token == NULL)
 			break;
+
 		token = strtok(NULL, " ");
 	}
-	return i;
+	return valid;
 }
 
 
-static int shell_exec(char * cmd){
+/*
+@ brief: Execute command
+*/
+static int exec_cmd(char * cmd){
 	for (int i = 0; i < commands_size; ++i){
 		if (strcmp(cmd, commands[i].cmd) == 0){
 			return (commands[i].handler)();
@@ -53,34 +66,34 @@ static int shell_exec(char * cmd){
 	return RET_FAILED;
 }
 
-#define CMD_RECV_EVT  1
 
+
+/*
+@ brief: Copy intput data to buffer and wake up shell_task
+*/
 void shell_input(char *msg, int size){
 	strncpy(input_buf, msg, size);
 	input_buf[39] = 0;
-	evt_set_isr(&shell_cmd_recv_evt, CMD_RECV_EVT);
+	evt_set_isr(&recv_evtgrp, RECV_EVT_BIT);
 }
-
 
 
 void shell_task(void *nothing){
 	while (1){
-		evt_wait(&shell_cmd_recv_evt, CMD_RECV_EVT, 1, 1, FOREVER);
+		evt_wait(&recv_evtgrp, RECV_EVT_BIT, 1, 1, FOREVER);
 
-		int narg = shell_parse_cmd();
+		int narg = parse_cmd();
 		if (narg == 0)
 			continue;
 
-		shell_exec(tokens[0]);
+		exec_cmd(tokens[0]);
 	}
 }
 
 
-static u_char task_stack[1100];
-
-void shell_init(int prio, data_trans_func output){
-	shell_output = output;
-	evt_group_init(&shell_cmd_recv_evt, 0);
+void shell_init(int prio, transfer_t output_func){
+	output = output_func;
+	evt_group_init(&recv_evtgrp, 0);
 	task_init(shell_task, "shell", NULL, prio, task_stack, 1100);
 }
 
@@ -88,40 +101,65 @@ void shell_init(int prio, data_trans_func output){
 /****************************** shell commands ******************************/
 
 int set_task_table_title(void);
-int get_task_info(task_handle tsk);
 int setheap_info_table_title(void);
-int output_heap_status(void);
-
+int output_heap_state(void);
+void output_task_info(task_handle tsk, void *nothing);
 
 static int __task(void) {
 	int size;
 
+	// output all task's infomation
 	if (strncmp(tokens[1], "all", CFG_TASK_NAME_LEN) == 0){
 		size = set_task_table_title();
-		shell_output(output_buf, size);
+		output(output_buf, size);
 
-		task_handle iter = traversing_tasks();
-		size = get_task_info(iter);
-		shell_output(output_buf, size);
-		
-		while ((iter = traversing_tasks()) != NULL){
-			size = get_task_info(iter);
-			shell_output(output_buf, size);
-		}
+		foreach_task(output_task_info, NULL);
 
-		shell_output(NL, 2);
+		output(S_NL, 2);
 		return RET_SUCCESS;
 	}
 
-	task_handle the_task = find_task(tokens[1]);
-	if (the_task != NULL){
-		size = set_task_table_title();
-		shell_output(output_buf, size);
+	// suspend a task
+	else if (strncmp(tokens[1], "-s", CFG_TASK_NAME_LEN) == 0){
+		task_handle the_task = find_task(tokens[2]);
+		if (the_task == NULL){
+			output("task do not exist\r\n", 20);
+			return RET_FAILED;
+		}
+		else if (get_task_state(the_task) != suspend)
+			task_suspend(the_task);
+	}
 
-		size = get_task_info(the_task);
-		shell_output(output_buf, size);
-		shell_output(NL, 2);
-		return RET_SUCCESS;
+
+	// resume a task
+	else if (strncmp(tokens[1], "-r", CFG_TASK_NAME_LEN) == 0){
+		task_handle the_task = find_task(tokens[2]);
+		if (the_task == NULL){
+			output("task do not exist\r\n", 20);
+			return RET_FAILED;
+		}
+		else if (get_task_state(the_task) > ready){
+			enter_critical();
+			task_ready(the_task);
+		}
+	}
+
+
+	// output the task's infomation
+	else {
+		task_handle the_task = find_task(tokens[1]);
+		if (the_task == NULL){
+			output("task do not exist\r\n", 20);
+			return RET_FAILED;
+		}
+		else {
+			size = set_task_table_title();
+			output(output_buf, size);
+
+			output_task_info(the_task, NULL);
+			output(S_NL, 2);
+			return RET_SUCCESS;
+		}
 	}
 
 	return RET_FAILED;
@@ -133,10 +171,10 @@ static int __task(void) {
 		int size;
 
 		size = setheap_info_table_title();
-		shell_output(output_buf, size);
+		output(output_buf, size);
 
-		size = output_heap_status();
-		shell_output(output_buf, size);
+		size = output_heap_state();
+		output(output_buf, size);
 		
 		return RET_SUCCESS;
 	}
@@ -159,22 +197,26 @@ static int set_task_table_title(void){
 	return sprintf(output_buf, "%-10s  %6s  %8s   %6s   %9s \r\n", 
 				"name",
 				"prio",
-				"status",
+				"state",
 				"min_stack",
 				"cpu_usage" );
 }
 
-// get these info: name, priority, status, min_stack, occupied_tick
-int get_task_info(task_handle tsk){
+
+/*
+@ brief: Write task's infomations to buffer and send: name, priority, state, min_stack, occupied_tick
+*/
+void output_task_info(task_handle tsk, void *nothing){
 	int usage = get_os_tick() / 100;
 	usage = tsk->occupied_tick / usage;
 
-	return sprintf(output_buf, "%-10s  %6d  %8s   %4d   %9d \r\n",  
+	int size = sprintf(output_buf, "%-10s  %6d  %8s   %4d   %9d \r\n",  
 				tsk->name, 
 				tsk->priority, 
-				stat_to_str[(int)(tsk->status)], 
+				stat_to_str[(int)(tsk->state)], 
 				tsk->min_stack,
 				usage );
+	output(output_buf, size);
 }
 
 
@@ -189,7 +231,7 @@ static int setheap_info_table_title(void){
 }
 
 
-static int output_heap_status(void){
+static int output_heap_state(void){
 	heap_info_t *info = get_heap_status();
 	return sprintf(output_buf, "%6d %10d %10d %14d %15d %12d \r\n",  
 				info->remain_size,

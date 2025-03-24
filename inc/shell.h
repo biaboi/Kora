@@ -2,9 +2,9 @@
 #define _SHELL_H
 
 
-typedef void (*data_trans_func)(char *, int);
+typedef void (*transfer_t)(char *, int);
 
-void shell_init(int prio, data_trans_func output);
+void shell_init(int prio, transfer_t output);
 void shell_input(char *msg, int size);
 
 #endif

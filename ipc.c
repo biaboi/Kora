@@ -28,8 +28,8 @@ extern u_int lock_nesting;
 
 /************************** counting semaphore ****************************/
 /*
-	In most cases, signal_task is not that important, so it will not be block
-	if exceed the maximum counting
+	In most cases, "signal" operation is not that important, 
+	so it will not be block if exceed the maximum counting
 */
 
 void sem_init(cntsem *s, int max_cnt, int init_cnt){
@@ -298,7 +298,9 @@ void msgq_overwrite_isr(msgque *mq, void *item){
 }
 
 
-// only get the front item in queue, must use msgque_pop() after this to pop item
+/*
+@ brief: Only get the front item in queue, must use msgque_pop() after this to pop item
+*/ 
 int msgq_front(msgque *mq, void *buf, u_int wait_ticks){
 	enter_critical();
 	while (1){
