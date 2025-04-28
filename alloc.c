@@ -1,28 +1,44 @@
-#include "Kora.h"
+/*
+ * Kora rtos
+ * Copyright (c) 2024 biaboi
+ *
+ * This file is part of this project and is licensed under the MIT License.
+ * See the LICENSE file in the project root for full license information.
+ */
+
 #include "KoraConfig.h"
+#include "Kora.h"
 #include <string.h>
 
-/* use next fit algorithm */
-
-splist *wait_for_free = NULL;
-
 #if CFG_ALLOW_DYNAMIC_ALLOC
+
+
+#if CFG_USE_ALLOC_HOOKS
+	vfunc alloc_hooks[alloc_hook_nums] = { NULL };
+	#define EXECUTE_HOOK(x, para) do{ if (alloc_hooks[x]) (alloc_hooks[x])(para);} while (0)
+#else
+	#define EXECUTE_HOOK(x, para) ((void)0)
+#endif
+
 
 
 static heap_info_t info = {CFG_HEAP_SIZE}; 
 static int min_left = CFG_HEAP_SIZE;
 
+
 static u_char unaligned_heap[CFG_HEAP_SIZE];
 static u_char *heap = unaligned_heap;
 
+// header of the allocated memory block
 typedef struct header {
 	u_short size;
 	u_short magic;
 } header_t;
 
-typedef struct memory_block{
+// header of the unallocated memory block
+typedef struct block{
 	u_int size;
-	struct memory_block *next;
+	struct block *next;
 } block_t;
 
 
@@ -46,7 +62,10 @@ static void heap_init(void){
 }
 
 
-// return addr is 4bytes alignment
+
+/*
+@ brief: Dynamic allocation function, use next fit algorithm to find free block.
+*/
 void* os_malloc(int size){
 	static bool first_time_call = true;
 
@@ -57,18 +76,20 @@ void* os_malloc(int size){
 		first_time_call = false;
 	}
 
+	// means that the current heap size is insufficient
 	if (size == 0 || size + sizeof(header_t) >= info.remain_size){
+		EXECUTE_HOOK(hook_alloc_failed, &size);
 		enable_task_switch();
 		return NULL;
 	}
 
+	// keep size a multiple of 4
 	if (size < sizeof(block_t)) 
 		size = sizeof(block_t);
 	int val = size % 4;
 	if (val != 0) size += (4 - val);
-	// keep size a multiple of 4
 
-	const u_int rqsz = size + sizeof(header_t); 
+	const u_int rqsz = size + sizeof(header_t);  // rqsz is short for required size
 	bool only_one_free_block = (end == end->next);
 
 	// iter point to the block that was last allocated
@@ -77,15 +98,18 @@ void* os_malloc(int size){
 		void* ori_addr = iter;
 		while (iter->next->size < rqsz) {
 			iter = iter->next;
+
+			// means there's not a big enough block
 			if (iter == ori_addr){
+				EXECUTE_HOOK(hook_alloc_failed, &size);
 				enable_task_switch();
 				return NULL;
 			}
 		}
 	}
 	block_t* new_block = iter->next;   
-/* find a free block to allocate */
 
+/* find a free block to allocate */
 	block_t* splitted = NULL;
 	if (new_block->size - rqsz >= sizeof(block_t)) {	// block have enough space to be splitted into two	
 		splitted = (block_t*)((u_int)new_block + rqsz);
@@ -145,7 +169,7 @@ void os_free(void *addr){
 		// reason if failed to free:
 		//	1. the address didn't come from malloc
 		// 	2. heap overflow and change the magic number accidently
-		os_assert(0);
+		EXECUTE_HOOK(hook_free_failed, addr);
 		return;
 	}
 
@@ -202,7 +226,11 @@ void os_free(void *addr){
 }
 
 
-// not immediately free, instead add the block to a linked list, and actually free in idle task
+splist *wait_for_free = NULL;
+
+/*
+@ brief: Not immediately free, instead add the block to a linked list, and actually free in idle task
+*/
 void queue_free(void *addr){
 	enter_critical();
 	splist *_addr = addr;
@@ -231,12 +259,12 @@ heap_info_t* get_heap_status(void){
 	
 	info.max_free_block_size = end->size;
 	info.left_block_num = 1;
-	block_t *iter = end->next;
-	while (iter != end){
+	block_t *tmp_iter = end->next;
+	while (tmp_iter != end){
 		info.left_block_num += 1;
-		if (iter->size > info.max_free_block_size)
-			info.max_free_block_size = iter->size;
-		iter = iter->next;
+		if (tmp_iter->size > info.max_free_block_size)
+			info.max_free_block_size = tmp_iter->size;
+		tmp_iter = tmp_iter->next;
 	}
 	return &info;
 }

@@ -21,6 +21,7 @@ typedef struct __list {
 
 #define LIST_NODE_INIT(pnode) ((pnode)->leader = NULL)
 #define IS_ORPHAN_NODE(pnode) ((pnode)->leader == NULL)
+#define FIRST_OF(lst)         ((lst).dmy.next)
 
 #define LIST_LEN(plst) ((plst)->list_len)
 #define LIST_IS_EMPTY(plst) ((plst)->list_len == 0)

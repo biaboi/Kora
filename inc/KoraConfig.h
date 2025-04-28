@@ -17,6 +17,7 @@
 #define CFG_KERNEL_LOG		        1
 
 #define CFG_USE_KERNEL_HOOKS        1
+#define CFG_USE_ALLOC_HOOKS         1
 
 
 #include "port.h"

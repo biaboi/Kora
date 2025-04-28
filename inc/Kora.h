@@ -8,7 +8,7 @@
 #include "queue.h"
 #include <limits.h>
 
-#define KORA_VERSION    "0.69"
+#define KORA_VERSION    "0.83"
 
 /********************************** tasks ************************************/
 
@@ -33,16 +33,16 @@ task_stat;
 
 typedef struct __tcb {
     u_char         *top_of_stack;
-    u_int           magic_n;            // used for check if tcb is accidentally overwritten 
-    u_int           occupied_tick;
+    u_int           magic;            // used for check if tcb is accidentally overwritten 
+    u_int           occupied_tick;    // used for roughly calculate the CPU usage
     u_char         *start_addr;
     u_int           priority;
     char            name[CFG_TASK_NAME_LEN];
-    u_int           min_stack;
+    u_int           min_stack;        // store the minimum remaining stack size
     task_stat       state;
-    list_node_t     state_node;         // state_node will be only mounted on ready_list or sleep_list
-    list_node_t     event_node;          
-    list_node_t     link;
+    list_node_t     state_node;       // state_node will be only mounted on ready_list or sleep_list
+    list_node_t     event_node;       
+    list_node_t     link_node;        // once the task is created, it is mounted to the all_tasks list 
 } tcb_t;
 
 
@@ -53,12 +53,14 @@ typedef tcb_t* task_handle;
 #define PRIORITY_HIGHEST    (u_int)1
 #define FOREVER      UINT_MAX
 
+// Used as a parameter of foreach_task() to process tasks.
 typedef void (*task_process_t)(task_handle, void *);
 
 task_handle task_init(vfunc code, const char *name, void *para, u_int prio, u_char *stk, int size);
 task_handle task_create(vfunc code, const char *name, void *para, u_int prio, int size);
 task_handle qcreate(vfunc code, int priority, int size);
 void task_delete(task_handle tsk);
+void task_delete_isr(task_handle tsk);
 
 int modify_priority(task_handle tsk, int new);
 void task_ready(task_handle tsk);
@@ -189,6 +191,7 @@ typedef enum {
     hook_idle,
     hook_stack_overf_isr,
     hook_systick_isr,
+    hook_tick_reset,
 
     kernel_hook_nums
 } kernel_hooks_t;

@@ -1,5 +1,13 @@
-#include "Kora.h"
+/*
+ * Kora rtos
+ * Copyright (c) 2024 biaboi
+ *
+ * This file is part of this project and is licensed under the MIT License.
+ * See the LICENSE file in the project root for full license information.
+ */
+
 #include "KoraConfig.h"
+#include "Kora.h"
 #include <string.h>
 
 
@@ -103,8 +111,9 @@ int sem_signal_isr(cntsem *s){
 	if (s->count >= s->max){
 		return RET_FAILED;
 	}
+	s->count += 1;
 	wakeup_isr(&s->block_list);
-	return s->count += 1;
+	return s->count;
 }
 
 
@@ -151,7 +160,7 @@ void mutex_lock(mutex *mtx){
 			return;
 		}
 
-// handle priority inversion
+		// handle priority inversion
 		tcb_t *owner = mtx->lock_owner;
 		int owner_prio = owner->priority;
 		int cur_prio = current_tcb->priority;
@@ -160,7 +169,6 @@ void mutex_lock(mutex *mtx){
 		if (owner_prio > cur_prio)
 			mtx->bkp_prio = modify_priority(owner, cur_prio);
 
-		
 		block(&mtx->block_list, FOREVER);
 	}
 }
@@ -337,7 +345,9 @@ void msgq_pop(msgque *mq){
 
 /******************************** event **********************************/
 /*
-	support 24 bits event
+	Use the 'value' variable of task's event_node to store bits.
+	Up to support 24 bits event.
+	Use the 30th bit of 'value' to store the condition (or/and).
 */
 
 void evt_group_init(event_t grp, evt_bits_t init_bits){
@@ -368,10 +378,13 @@ int evt_group_delete(event_t grp){
 }
 
 
-static bool is_bits_satisfy(event_t grp, list_node_t *task_event_node){
-	char opt = task_event_node->value >> 30;
+/*
+@ brief: Check whether the current bits meet the requirements.
+*/
+static bool is_bits_satisfy(event_t grp, u_int evt_val){
+	char opt = evt_val >> 30;
 	evt_bits_t seted_bits = grp->evt_bits;
-	evt_bits_t req_bits = task_event_node->value & 0x00FFFFFF;
+	evt_bits_t req_bits = evt_val & 0x00FFFFFF;
 
 	if (opt == EVT_GROUP_OPT_OR){
 		seted_bits &= (~req_bits);
@@ -387,6 +400,11 @@ static bool is_bits_satisfy(event_t grp, list_node_t *task_event_node){
 }
 
 
+/*
+@ brief: Wait events happend.
+@ param: clr-> if the conditions are met, whether to clear the corresponding flag bit after the task is awakened
+         opt-> the condition under which the event occurs is bit and/or
+*/
 int evt_wait(event_t grp, evt_bits_t bits, bool clr, int opt, u_int wait_ticks){
 	os_assert(bits < 0x01000000);
 
@@ -396,7 +414,7 @@ int evt_wait(event_t grp, evt_bits_t bits, bool clr, int opt, u_int wait_ticks){
 	enode->value = (u_int)bits;
 	enode->value |= (opt << 30);
 
-	if (is_bits_satisfy(grp, enode) == false){
+	if (is_bits_satisfy(grp, enode->value) == false){
 		block(&grp->block_list, wait_ticks);
 
 		wait_ticks = get_task_left_sleep_tick(current_tcb);
@@ -421,7 +439,7 @@ void evt_set(event_t grp, evt_bits_t bits){
 	list_node_t *iter = &grp->block_list.dmy;
 
 	while ((iter = iter->next) != &grp->block_list.dmy){
-		if (is_bits_satisfy(grp, iter)){
+		if (is_bits_satisfy(grp, iter->value)){
 			task_ready(EVENT_NODE_TO_TCB(iter));
 			enter_critical();
 		}
@@ -436,7 +454,7 @@ void evt_set_isr(event_t grp, evt_bits_t bits){
 	list_node_t *iter = &grp->block_list.dmy;
 
 	while ((iter = iter->next) != &grp->block_list.dmy){
-		if (is_bits_satisfy(grp, iter))
+		if (is_bits_satisfy(grp, iter->value))
 			task_ready_isr(EVENT_NODE_TO_TCB(iter));
 	}
 }

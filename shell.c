@@ -1,10 +1,18 @@
+/*
+ * Kora rtos
+ * Copyright (c) 2024 biaboi
+ *
+ * This file is part of this project and is licensed under the MIT License.
+ * See the LICENSE file in the project root for full license information.
+ */
+
 #include "Kora.h"
 #include "shell.h"
 #include "stdio.h"
 #include "string.h"
 
 
-#define S_NL  "\r\n"
+#define NL  "\r\n"
 
 #define RECV_EVT_BIT  1
 
@@ -109,13 +117,13 @@ static int __task(void) {
 	int size;
 
 	// output all task's infomation
-	if (strncmp(tokens[1], "all", CFG_TASK_NAME_LEN) == 0){
+	if (strncmp(tokens[1], "-a", CFG_TASK_NAME_LEN) == 0){
 		size = set_task_table_title();
 		output(output_buf, size);
 
 		foreach_task(output_task_info, NULL);
 
-		output(S_NL, 2);
+		output(NL, 2);
 		return RET_SUCCESS;
 	}
 
@@ -145,8 +153,8 @@ static int __task(void) {
 	}
 
 
-	// output the task's infomation
-	else {
+	// output information about the specified task
+	else if (strncmp(tokens[1], "-i", CFG_TASK_NAME_LEN) == 0) {
 		task_handle the_task = find_task(tokens[1]);
 		if (the_task == NULL){
 			output("task do not exist\r\n", 20);
@@ -157,9 +165,14 @@ static int __task(void) {
 			output(output_buf, size);
 
 			output_task_info(the_task, NULL);
-			output(S_NL, 2);
+			output(NL, 2);
 			return RET_SUCCESS;
 		}
+	}
+
+	else {
+		output("unknown parameter\r\n", 20);
+		return RET_FAILED;
 	}
 
 	return RET_FAILED;
@@ -189,7 +202,7 @@ static int __task(void) {
 /**************************** shell commands end ****************************/
 
 static char *stat_to_str[5] = {
-	"running", "ready", "sleep", "block", "suspend",
+	"run", "ready", "sleep", "block", "susp",
 };
 
 
