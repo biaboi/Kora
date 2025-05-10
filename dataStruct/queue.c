@@ -5,7 +5,7 @@
 // circular queue
 
 void queue_init(queue *que, void *buf, int nitems, int size){
-	que->head = buf;
+	que->buf = buf;
 	que->item_size = size;
 	que->max = nitems;
 
@@ -21,7 +21,7 @@ int queue_push(queue *que, void *item){
 		que->len += 1;
 
 	int size = que->item_size;
-	void *des = (void*)( (u_int)(que->head) + size*que->rear);
+	void *des = (void*)( (u_int)(que->buf) + size*que->rear);
 	memcpy(des, item, size);
 	que->rear = (que->rear + 1) % que->max;
 
@@ -34,7 +34,7 @@ int queue_front(queue *que, void *buf){
 		return RET_FAILED;
 
 	int size = que->item_size;
-	void *src = (void*)( (u_int)(que->head) + size*que->front);
+	void *src = (void*)( (u_int)(que->buf) + size*que->front);
 	memcpy(buf, src, size);
 	return que->len;
 }

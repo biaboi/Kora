@@ -10,9 +10,20 @@
 #include "Kora.h"
 #include <string.h>
 
+/********************************** ipc hooks **********************************/
+
+// #if CFG_USE_IPC_HOOKS
+// 	ipc_hook_callback ipc_hooks[ipc_hook_nums] = {0};
+// 	#define EXECUTE_HOOK(x, ipc, type, tsk) \
+// 		do { if (ipc_hooks[x]) (ipc_hooks[x])(ipc, type, tsk);} while (0)
+// #else
+// 	#define EXECUTE_HOOK(x, para) ((void)0)
+// #endif
+
+#define EXECUTE_HOOK(a, b, c, d)  (void)0
+
 
 #define EVENT_NODE_TO_TCB(pnode) ((tcb_t*)( (u_int)(pnode) - offsetof(tcb_t, event_node)) )
-
 
 static void wakeup(list_t *blklst){
 	if (LIST_NOT_EMPTY(blklst)){
@@ -43,7 +54,7 @@ extern u_int lock_nesting;
 void sem_init(cntsem *s, int max_cnt, int init_cnt){
 	os_assert(max_cnt >= init_cnt);
 
-	s->max = max_cnt;
+	s->size = max_cnt;
 	s->count = init_cnt;
 	list_init(&s->block_list);
 }
@@ -72,13 +83,15 @@ int sem_delete(cntsem *s){
 
 
 int sem_wait(cntsem *s, u_int wait_ticks){
+	EXECUTE_HOOK(hook_wait_enter, s, ipc_sem, current_tcb);
 	enter_critical();
 
 	while (s->count <= 0){
 		if (wait_ticks == 0){
 			exit_critical();
-			return ERR_TIME_OUT;
+			return RET_FAILED;
 		}
+		EXECUTE_HOOK(hook_wait_blocked, s, ipc_sem, current_tcb);
 		block(&s->block_list, wait_ticks);
 		if (s->count > 0)
 			break;
@@ -96,11 +109,12 @@ int sem_signal(cntsem *s){
 	os_assert(lock_nesting == 0);
 
 	enter_critical();
-	if (s->count >= s->max){
+	if (s->count >= s->size){
 		exit_critical();
 		return RET_FAILED;
 	}
 	s->count += 1;
+	EXECUTE_HOOK(hook_release, s, ipc_sem, current_tcb);
 	wakeup(&s->block_list);
 	exit_critical();
 	return s->count;
@@ -108,7 +122,7 @@ int sem_signal(cntsem *s){
 
 
 int sem_signal_isr(cntsem *s){
-	if (s->count >= s->max){
+	if (s->count >= s->size){
 		return RET_FAILED;
 	}
 	s->count += 1;
@@ -152,6 +166,7 @@ int mutex_delete(mutex *mtx){
 void mutex_lock(mutex *mtx){
 	os_assert(lock_nesting == 0);
 
+	EXECUTE_HOOK(hook_wait_enter, mtx, ipc_mtx, current_tcb);
 	enter_critical();
 	while (1){
 		if (mtx->lock_owner == NULL){
@@ -169,6 +184,7 @@ void mutex_lock(mutex *mtx){
 		if (owner_prio > cur_prio)
 			mtx->bkp_prio = modify_priority(owner, cur_prio);
 
+		EXECUTE_HOOK(hook_wait_blocked, mtx, ipc_mtx, current_tcb);
 		block(&mtx->block_list, FOREVER);
 	}
 }
@@ -201,9 +217,9 @@ void mutex_unlock(mutex *mtx){
 	In this case, you need to wait for the queue to empty a place, then write the buffer,
 	and then write the pointer to the queue.
 
-	msgque_try_push() is used to handle this situation like this:
+	msgque_wait() is used to handle this situation like this:
 
-	int ret = msgque_try_push(queue, xticks);
+	int ret = msgque_wait(queue, xticks);
 	if (ret == RET_SUCCESS){
 		enter_critical();
 		write_buffer(buffer_point, data, size);
@@ -239,7 +255,8 @@ int msgq_delete(msgque *mq){
 	if (stat != 0)
 		return RET_FAILED;
 
-	queue_free(mq);
+	if (is_heap_addr(mq))
+		queue_free(mq);
 	return RET_SUCCESS;
 }
 
@@ -258,9 +275,10 @@ int msgq_push(msgque *mq, void *item, u_int wait_ticks){
 
 		if (wait_ticks == 0){
 			exit_critical();
-			return ERR_TIME_OUT;
+			return RET_FAILED;
 		}
 
+		EXECUTE_HOOK(hook_push_blocked, mq, ipc_msgq, current_tcb);
 		block(&mq->wb_list, wait_ticks);
 
 		wait_ticks = get_task_left_sleep_tick(current_tcb);
@@ -268,9 +286,13 @@ int msgq_push(msgque *mq, void *item, u_int wait_ticks){
 }
 
 
-int msgq_try_push(msgque *mq, u_int wait_ticks){
+/*
+@ brief: Waiting until the queue has space.
+*/
+int msgq_waitfor_push(msgque *mq, u_int wait_ticks){
 	os_assert(lock_nesting == 0);
 
+	EXECUTE_HOOK(hook_wait_enter, s, ipc_sem, current_tcb);
 	enter_critical();
 	while (1){
 		if (!MSGQUE_FULL(mq)){
@@ -280,9 +302,10 @@ int msgq_try_push(msgque *mq, u_int wait_ticks){
 
 		if (wait_ticks == 0){
 			exit_critical();
-			return ERR_TIME_OUT;
+			return RET_FAILED;
 		}
 
+		EXECUTE_HOOK(hook_wait_blocked, mq, ipc_msgq, current_tcb);
 		block(&mq->wb_list, wait_ticks);
 		
 		wait_ticks = get_task_left_sleep_tick(current_tcb);
@@ -307,7 +330,8 @@ void msgq_overwrite_isr(msgque *mq, void *item){
 
 
 /*
-@ brief: Only get the front item in queue, must use msgque_pop() after this to pop item
+@ brief: Get the front item in queue.
+@ note: Only read item, must use msgque_pop() to pop item.
 */ 
 int msgq_front(msgque *mq, void *buf, u_int wait_ticks){
 	enter_critical();
@@ -320,9 +344,10 @@ int msgq_front(msgque *mq, void *buf, u_int wait_ticks){
 
 		if (wait_ticks == 0){
 			exit_critical();
-			return ERR_TIME_OUT;
+			return RET_FAILED;
 		}
 
+		EXECUTE_HOOK(hook_wait_blocked, mq, ipc_msgq, current_tcb);
 		block(&mq->rb_list, wait_ticks);
 
 		wait_ticks = get_task_left_sleep_tick(current_tcb);
@@ -331,6 +356,7 @@ int msgq_front(msgque *mq, void *buf, u_int wait_ticks){
 
 
 void msgq_pop(msgque *mq){
+	EXECUTE_HOOK(hook_wait_enter, mq, ipc_msgq, current_tcb);
 	enter_critical();
 	queue *que = &mq->que;
 	if (que->len > 0){
@@ -408,19 +434,20 @@ static bool is_bits_satisfy(event_t grp, u_int evt_val){
 int evt_wait(event_t grp, evt_bits_t bits, bool clr, int opt, u_int wait_ticks){
 	os_assert(bits < 0x01000000);
 
+	EXECUTE_HOOK(hook_wait_enter, mq, ipc_msgq, current_tcb);
 	enter_critical();
-
 	list_node_t *enode = &current_tcb->event_node;
 	enode->value = (u_int)bits;
 	enode->value |= (opt << 30);
 
 	if (is_bits_satisfy(grp, enode->value) == false){
+		EXECUTE_HOOK(hook_wait_blocked, grp, ipc_evt, current_tcb);
 		block(&grp->block_list, wait_ticks);
 
 		wait_ticks = get_task_left_sleep_tick(current_tcb);
 		if (wait_ticks == 0){
 			exit_critical();
-			return ERR_TIME_OUT;
+			return RET_FAILED;
 		}
 	}
 
@@ -471,5 +498,147 @@ void evt_clear(event_t grp, evt_bits_t bits){
 
 void evt_clear_isr(event_t grp, evt_bits_t bits){
 	grp->evt_bits &= (~bits);
+}
+
+
+/******************************* stream queue *********************************/
+/*
+	Stream queue is an ipc structure for handling continuous non-fixed-length byte data, 
+	similar to the stream buffer in Freertos but support multiple writes and read.
+
+	Data is stored and retrieved in segments by using structure byte_buffer.
+*/
+
+void streamq_init(streamq_t sq, void *buf, int buf_size){
+	byte_buffer_init(&sq->bbf, buf, buf_size);
+	list_init(&sq->wb_list);
+	list_init(&sq->rb_list);
+}
+
+
+streamq_t streamq_create(int buf_size){
+	if (buf_size == 0)
+		return NULL;
+
+	streamq_t sq = malloc(sizeof(streamq));
+	if (sq == NULL){
+		return NULL;
+	}
+	streamq_init(sq, (char*)sq + sizeof(streamq), buf_size);
+	return sq;
+}
+
+
+int streamq_delete(streamq_t sq){
+	return 0;
+}
+
+
+
+/*
+@ brief: Push the data into the byte buffer.
+         If the space of the byte buffer is insufficient, 
+         push the data each time until the byte buffer is full.
+@ retv:  RET_SUCCESS / RET_FAILED.
+*/
+int streamq_push(streamq_t sq, void *data, u_short size, u_int wait_ticks){
+	os_assert(lock_nesting == 0);
+
+	enter_critical();
+	while (1){
+		int ret = byte_buffer_push(&sq->bbf, data, size);
+		if (ret == RET_SUCCESS){
+			wakeup(&sq->rb_list);
+			exit_critical();
+			return RET_SUCCESS;
+		}
+
+		if (wait_ticks == 0){
+			exit_critical();
+			return RET_FAILED;
+		}
+
+		block(&sq->wb_list, wait_ticks);
+		wait_ticks = get_task_left_sleep_tick(current_tcb);
+	}
+}
+
+
+/*
+@ retv:  RET_SUCCESS / RET_FAILED.
+*/
+int streamq_push_isr(streamq_t sq, void *data, u_short size){
+	int ret = byte_buffer_push(&sq->bbf, data, size);
+	if (ret == RET_FAILED){
+		return RET_FAILED;
+	}
+	wakeup_isr(&sq->rb_list);
+	return RET_SUCCESS;
+}
+
+
+/*
+@ brief: Read the front data of stream queue.
+@ retv:  RET_FAILED -> read failed, no data now
+         Other -> size of read out data
+*/
+int streamq_front(streamq_t sq, void *output, u_int wait_ticks){
+	os_assert(lock_nesting == 0);
+
+	enter_critical();
+	while (1){
+		int ret = byte_buffer_front(&sq->bbf, output);
+		if (ret == RET_SUCCESS){
+			wakeup(&sq->wb_list);
+			exit_critical();
+			return RET_SUCCESS;
+		}
+
+		if (wait_ticks == 0){
+			exit_critical();
+			return RET_FAILED;
+		}
+
+		block(&sq->rb_list, wait_ticks);
+		wait_ticks = get_task_left_sleep_tick(current_tcb);
+	}
+}
+
+
+/*
+@ brief: Return a pointer to the data inside the stream queue for zero-copy processing.
+@ param: pointer -> Address to store the pointer to the data  
+         outlen  -> Size of the data read from the buffer
+@ retv:  RET_SUCCESS / RET_FAILED.
+*/
+int streamq_front_pointer(streamq_t sq, void **pointer, int *outlen, u_int wait_ticks){
+	enter_critical();
+	while (1){
+		int ret = byte_buffer_front_pointer(&sq->bbf, pointer, &outlen);
+		if (ret == RET_SUCCESS){
+			wakeup(&sq->wb_list);
+			exit_critical();
+			return RET_SUCCESS;
+		}
+
+		if (wait_ticks == 0){
+			exit_critical();
+			return RET_FAILED;
+		}
+
+		block(&sq->rb_list, wait_ticks);
+		wait_ticks = get_task_left_sleep_tick(current_tcb);
+	}
+}
+
+
+/*
+@ brief: Pop data from stream queue.
+*/
+void streamq_pop(streamq_t sq){
+	enter_critical();
+	byte_buffer_pop(&sq->bbf);
+	wakeup(&sq->wb_list);
+	enter_critical();
 }
 

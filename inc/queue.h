@@ -3,15 +3,16 @@
 
 #include "KoraDef.h"
 
-typedef struct queue {
-	void   *head;
-	short   item_size;
-	short   max;
+typedef struct {
+	void    *buf;
+	u_short  item_size;
+	u_short  max;
 
-	short   front;
-	short   rear;
+	u_short  front;
+	u_short  rear;
 
-	int     len;
+	u_short  len;
+	u_short  reserved;
 } queue;
 
 

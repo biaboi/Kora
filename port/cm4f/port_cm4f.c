@@ -26,7 +26,7 @@ void exit_critical(void){
 			cpsie i;
 		}
 	}
-} 
+}
 
 
 void task_self_delete(void);

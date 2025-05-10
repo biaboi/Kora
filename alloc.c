@@ -262,8 +262,10 @@ heap_info_t* get_heap_status(void){
 	block_t *tmp_iter = end->next;
 	while (tmp_iter != end){
 		info.left_block_num += 1;
+		
 		if (tmp_iter->size > info.max_free_block_size)
 			info.max_free_block_size = tmp_iter->size;
+
 		tmp_iter = tmp_iter->next;
 	}
 	return &info;

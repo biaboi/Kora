@@ -6,6 +6,7 @@
 #include "assert.h"
 #include "list.h"
 #include "queue.h"
+#include "byteBuffer.h"
 #include <limits.h>
 
 #define KORA_VERSION    "0.83"
@@ -74,7 +75,6 @@ void task_suspend_isr(task_handle tsk);
 task_stat get_task_state(task_handle tsk);
 u_int get_task_left_sleep_tick(task_handle tsk);
 char* get_task_name(task_handle tsk);
-task_handle traversing_tasks(void);
 task_handle find_task(char *name);
 void foreach_task(task_process_t process, void *para);
 
@@ -93,13 +93,28 @@ void Kora_start(void);
 
 
 
-#define ERR_TIME_OUT  	-1
+
+typedef enum {ipc_sem, ipc_mtx, ipc_msgq, ipc_evt} ipc_type;
+
+/****************************** ipc tracer ********************************/
+// #if UNDER_CONSTRUCTION
+
+
+// typedef struct {
+//     const char *name;
+//     void (*on_wait)(const char *name, task_handle task);
+//     void (*on_release)(const char *name, task_handle task);
+//     uint32_t hit_count;
+// } ipc_tracer_t;
+
+// typedef void (*trace_cb)(char *, task_handle);
+// #endif
 
 /************************** counting semaphore ****************************/
 
 typedef struct counting_semaphore {
 	volatile int   count;
-	int            max;
+	int            size;
 	list_t         block_list;
 } cntsem;
 
@@ -151,7 +166,7 @@ msgq_t msgq_create(int nitems, int size);
 int msgq_delete(msgq_t mq);
 
 int msgq_push(msgq_t mq, void *item, u_int wait_ticks);
-int msgq_try_push(msgq_t mq, u_int wait_ticks);
+int msgq_waitfor_push(msgq_t mq, u_int wait_ticks);
 void msgq_overwrite(msgq_t mq, void *item);
 void msgq_overwrite_isr(msgq_t mq, void *item);
 
@@ -184,6 +199,24 @@ void evt_clear(event_t grp, evt_bits_t bits);
 void evt_clear_isr(event_t grp, evt_bits_t bits);
 
 
+/******************************** byte buffer **********************************/
+
+typedef struct {
+    byte_buffer   bbf;
+    list_t        rb_list;  // read_block_list
+    list_t        wb_list;  // write_block_list
+} streamq;
+
+typedef streamq* streamq_t;
+
+
+void streamq_init(streamq_t sq, void *buf, int buf_size);
+streamq_t streamq_create(int buf_size);
+int streamq_delete(streamq_t sq);
+int streamq_push(streamq_t sq, void *data, u_short size, u_int wait_ticks);
+int streamq_push_isr(streamq_t sq, void *data, u_short size);
+
+/******************************** kernel hooks **********************************/
 
 typedef enum {
     hook_task_switched_isr = 0,
@@ -206,5 +239,32 @@ typedef enum {
     #define  KERNEL_HOOK_DEL(x)        ((void)0)
 #endif
 
+/********************************* ipc hooks ***********************************/
+
+#if UNDER_CONSTRUCTION
+// typedef void (*ipc_hook_callback)(void *ipc, int type, task_handle tsk);
+
+// typedef enum {
+//     hook_wait_enter = 0,
+//     hook_wait_blocked,
+//     hook_wait_success,
+//     hook_wait_timeout,
+//     hook_release,
+//     hook_give_ready,
+//     hook_push_blocked,
+
+//     ipc_hook_nums
+// } ipc_hooks_t;
+
+
+// #if CFG_USE_IPC_COMM_HOOKS
+//     extern   ipc_hook_callback   ipc_hooks[ipc_hook_nums]
+//     #define  IPC_COMM_HOOK_ADD(x, func)  (ipc_hooks[x] = (func))
+//     #define  IPC_COMM_HOOK_DEL(x)        (ipc_hooks[x] = NULL)
+// #else
+//     #define  IPC_COMM_HOOK_ADD(x, func)  ((void)0)
+//     #define  IPC_COMM_HOOK_DEL(x)        ((void)0)
+// #endif
+#endif
 
 #endif  // _KORA_H

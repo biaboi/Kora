@@ -12,8 +12,8 @@ typedef char bool;
 #define ALIGN4MASK 	0xFFFFFFFC
 #define ALIGN8MASK 	0xFFFFFFF8
 
-#define RET_SUCCESS   		0
-#define RET_FAILED   		(-1)
+#define RET_SUCCESS   		(int)0
+#define RET_FAILED   		(int)(-1)
 
 typedef unsigned char  u_char;
 typedef unsigned short u_short;

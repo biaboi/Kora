@@ -36,9 +36,9 @@ void port_rt_stack_init(vfunc code, void *para, u_char *rt_stack);
 #define STATE_NODE_TO_TCB(pnode)    ((tcb_t*)( (u_int)(pnode) - offsetof(tcb_t, state_node)) )
 #define LINK_NODE_TO_TCB(pnode)     ((tcb_t*)( (u_int)(pnode) - offsetof(tcb_t, link_node)) )
 
-#if CFG_USE_KERNEL_HOOKS
-	vfunc kernel_hooks[kernel_hook_nums] = {0};
-	#define EXECUTE_HOOK(x, para) do{ if (kernel_hooks[x]) (kernel_hooks[x])(para);} while (0)
+#if CFG_USE_IPC_COMM_HOOKS
+	vfunc ipc_comm_hooks[ipc_comm_hook_nums] = {0};
+	#define EXECUTE_HOOK(x, para) do{ if (ipc_comm_hooks[x]) (ipc_comm_hooks[x])(para);} while (0)
 #else
 	#define EXECUTE_HOOK(x, para) ((void)0)
 #endif
@@ -53,6 +53,7 @@ void port_rt_stack_init(vfunc code, void *para, u_char *rt_stack);
 static int add_to_ready(task_handle tsk){ 
 	u_int prio = tsk->priority;
 	prio_bitmap |= 1 << prio; 
+	tsk->state = ready;
 
 	list_insert_end(ready_lists+prio, &tsk->state_node);
 	if (prio < highest_prio){
@@ -80,21 +81,22 @@ static void remove_from_ready(task_handle tsk){
 
 
 /*
-@ brief: Modify the task's priority 
-@ retv: Task's old priority
+@ brief: Modify the task's priority.
+@ retv: Task's old priority.
 */
-int modify_priority(task_handle tsk, int new){
-	os_assert(new < CFG_MAX_PRIOS);
+int modify_priority(task_handle tsk, int new_prio){
+	os_assert(new_prio < CFG_MAX_PRIOS);
 
-	int ret = tsk->priority;
+	int old = tsk->priority;
 	enter_critical();
 
 	remove_from_ready(tsk);
-	tsk->priority = new;
+	tsk->event_node.value = new_prio;
+	tsk->priority = new_prio;
 	add_to_ready(tsk);
 
 	exit_critical();
-	return ret;
+	return old;
 }
 
 
@@ -143,7 +145,6 @@ void task_ready(task_handle tsk){
 	os_assert(lock_nesting == 1);
 	os_assert(switch_disable == 0);
 
-	tsk->state = ready;
 	list_remove(&tsk->state_node);
 	list_remove(&tsk->event_node);
 	int has_changed = add_to_ready(tsk);
@@ -156,7 +157,6 @@ void task_ready(task_handle tsk){
 
 
 void task_ready_isr(task_handle tsk){
-	tsk->state = ready;
 	list_remove(&tsk->state_node);
 	list_remove(&tsk->event_node);
 	int has_changed = add_to_ready(tsk);
@@ -185,7 +185,7 @@ void block(list_t *blklst, u_int overtime_ticks){
 		else
 			current_tcb->state_node.value = UINT_MAX;
 
-		list_insert_end(blklst, &current_tcb->event_node);
+		list_insert(blklst, &current_tcb->event_node);
 	}
 
 	exit_critical();
@@ -204,6 +204,7 @@ void block_isr(task_handle tsk, list_t *blklst, u_int overtime_ticks){
 		remove_ready_node(tsk);
 		if (overtime_ticks != UINT_MAX)
 			add_to_sleep(tsk, overtime_ticks);
+
 		list_insert(blklst, &tsk->event_node);
 	}
 
@@ -342,6 +343,8 @@ static void tcb_init(tcb_t *tcb, u_int prio, const char *name, u_char *start){
 	tcb->magic = TCB_MAGIC_NUM;
 	tcb->min_stack = 999999;
 	tcb->occupied_tick = 0;
+
+	tcb->event_node.value = prio;
 
 	list_insert_end(&all_tasks, &tcb->link_node);
 }
