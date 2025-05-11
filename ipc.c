@@ -82,6 +82,11 @@ int sem_delete(cntsem *s){
 }
 
 
+/*
+@ brief: Wait for the semaphore to be ready and take one.
+@ retv:  RET_FAILED -> wait timeout
+         Other -> the number of remain semaphore
+*/
 int sem_wait(cntsem *s, u_int wait_ticks){
 	EXECUTE_HOOK(hook_wait_enter, s, ipc_sem, current_tcb);
 	enter_critical();
@@ -96,12 +101,37 @@ int sem_wait(cntsem *s, u_int wait_ticks){
 		if (s->count > 0)
 			break;
 
-		wait_ticks = get_task_left_sleep_tick(current_tcb);
+		wait_ticks = task_left_sleep_tick(current_tcb);
 	}
 
 	s->count -= 1;
 	exit_critical();
 	return s->count;
+}
+
+
+/*
+@ brief: Wait for the semaphore to be ready but do not take.
+@ retv: RET_SUCCESS / RET_FAILED.
+*/
+int sem_peek(cntsem *s, u_int wait_ticks){
+	enter_critical();
+
+	while (s->count <= 0){
+		if (wait_ticks == 0){
+			exit_critical();
+			return RET_FAILED;
+		}
+
+		block(&s->block_list, wait_ticks);
+		if (s->count > 0)
+			break;
+
+		wait_ticks = task_left_sleep_tick(current_tcb);
+	}
+
+	exit_critical();
+	return RET_SUCCESS;
 }
 
 
@@ -182,7 +212,7 @@ void mutex_lock(mutex *mtx){
 
 		// priority promote
 		if (owner_prio > cur_prio)
-			mtx->bkp_prio = modify_priority(owner, cur_prio);
+			mtx->bkp_prio = task_modify_priority(owner, cur_prio);
 
 		EXECUTE_HOOK(hook_wait_blocked, mtx, ipc_mtx, current_tcb);
 		block(&mtx->block_list, FOREVER);
@@ -199,7 +229,7 @@ void mutex_unlock(mutex *mtx){
 
 	// recover owner_task's original priority
 	if (mtx->bkp_prio != 0){
-		modify_priority(owner, mtx->bkp_prio);
+		task_modify_priority(owner, mtx->bkp_prio);
 		mtx->bkp_prio = 0;
 	}
 
@@ -281,7 +311,7 @@ int msgq_push(msgque *mq, void *item, u_int wait_ticks){
 		EXECUTE_HOOK(hook_push_blocked, mq, ipc_msgq, current_tcb);
 		block(&mq->wb_list, wait_ticks);
 
-		wait_ticks = get_task_left_sleep_tick(current_tcb);
+		wait_ticks = task_left_sleep_tick(current_tcb);
 	}
 }
 
@@ -308,7 +338,7 @@ int msgq_waitfor_push(msgque *mq, u_int wait_ticks){
 		EXECUTE_HOOK(hook_wait_blocked, mq, ipc_msgq, current_tcb);
 		block(&mq->wb_list, wait_ticks);
 		
-		wait_ticks = get_task_left_sleep_tick(current_tcb);
+		wait_ticks = task_left_sleep_tick(current_tcb);
 	}
 }
 
@@ -350,7 +380,7 @@ int msgq_front(msgque *mq, void *buf, u_int wait_ticks){
 		EXECUTE_HOOK(hook_wait_blocked, mq, ipc_msgq, current_tcb);
 		block(&mq->rb_list, wait_ticks);
 
-		wait_ticks = get_task_left_sleep_tick(current_tcb);
+		wait_ticks = task_left_sleep_tick(current_tcb);
 	}
 }
 
@@ -444,7 +474,7 @@ int evt_wait(event_t grp, evt_bits_t bits, bool clr, int opt, u_int wait_ticks){
 		EXECUTE_HOOK(hook_wait_blocked, grp, ipc_evt, current_tcb);
 		block(&grp->block_list, wait_ticks);
 
-		wait_ticks = get_task_left_sleep_tick(current_tcb);
+		wait_ticks = task_left_sleep_tick(current_tcb);
 		if (wait_ticks == 0){
 			exit_critical();
 			return RET_FAILED;
@@ -547,7 +577,7 @@ int streamq_push(streamq_t sq, void *data, u_short size, u_int wait_ticks){
 	enter_critical();
 	while (1){
 		int ret = byte_buffer_push(&sq->bbf, data, size);
-		if (ret == RET_SUCCESS){
+		if (ret != RET_FAILED){
 			wakeup(&sq->rb_list);
 			exit_critical();
 			return RET_SUCCESS;
@@ -559,7 +589,7 @@ int streamq_push(streamq_t sq, void *data, u_short size, u_int wait_ticks){
 		}
 
 		block(&sq->wb_list, wait_ticks);
-		wait_ticks = get_task_left_sleep_tick(current_tcb);
+		wait_ticks = task_left_sleep_tick(current_tcb);
 	}
 }
 
@@ -588,10 +618,10 @@ int streamq_front(streamq_t sq, void *output, u_int wait_ticks){
 	enter_critical();
 	while (1){
 		int ret = byte_buffer_front(&sq->bbf, output);
-		if (ret == RET_SUCCESS){
+		if (ret != RET_FAILED){
 			wakeup(&sq->wb_list);
 			exit_critical();
-			return RET_SUCCESS;
+			return ret;
 		}
 
 		if (wait_ticks == 0){
@@ -600,7 +630,7 @@ int streamq_front(streamq_t sq, void *output, u_int wait_ticks){
 		}
 
 		block(&sq->rb_list, wait_ticks);
-		wait_ticks = get_task_left_sleep_tick(current_tcb);
+		wait_ticks = task_left_sleep_tick(current_tcb);
 	}
 }
 
@@ -614,7 +644,7 @@ int streamq_front(streamq_t sq, void *output, u_int wait_ticks){
 int streamq_front_pointer(streamq_t sq, void **pointer, int *outlen, u_int wait_ticks){
 	enter_critical();
 	while (1){
-		int ret = byte_buffer_front_pointer(&sq->bbf, pointer, &outlen);
+		int ret = byte_buffer_front_pointer(&sq->bbf, pointer, outlen);
 		if (ret == RET_SUCCESS){
 			wakeup(&sq->wb_list);
 			exit_critical();
@@ -627,7 +657,7 @@ int streamq_front_pointer(streamq_t sq, void **pointer, int *outlen, u_int wait_
 		}
 
 		block(&sq->rb_list, wait_ticks);
-		wait_ticks = get_task_left_sleep_tick(current_tcb);
+		wait_ticks = task_left_sleep_tick(current_tcb);
 	}
 }
 
@@ -639,6 +669,6 @@ void streamq_pop(streamq_t sq){
 	enter_critical();
 	byte_buffer_pop(&sq->bbf);
 	wakeup(&sq->wb_list);
-	enter_critical();
+	exit_critical();
 }
 

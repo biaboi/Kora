@@ -129,24 +129,24 @@ static int __task(void) {
 
 	// suspend a task
 	else if (strncmp(tokens[1], "-s", CFG_TASK_NAME_LEN) == 0){
-		task_handle the_task = find_task(tokens[2]);
+		task_handle the_task = task_find(tokens[2]);
 		if (the_task == NULL){
 			output("task do not exist\r\n", 20);
 			return RET_FAILED;
 		}
-		else if (get_task_state(the_task) != suspend)
+		else if (task_state(the_task) != suspend)
 			task_suspend(the_task);
 	}
 
 
 	// resume a task
 	else if (strncmp(tokens[1], "-r", CFG_TASK_NAME_LEN) == 0){
-		task_handle the_task = find_task(tokens[2]);
+		task_handle the_task = task_find(tokens[2]);
 		if (the_task == NULL){
 			output("task do not exist\r\n", 20);
 			return RET_FAILED;
 		}
-		else if (get_task_state(the_task) > ready){
+		else if (task_state(the_task) > ready){
 			enter_critical();
 			task_ready(the_task);
 		}
@@ -155,7 +155,7 @@ static int __task(void) {
 
 	// output information about the specified task
 	else if (strncmp(tokens[1], "-i", CFG_TASK_NAME_LEN) == 0) {
-		task_handle the_task = find_task(tokens[1]);
+		task_handle the_task = task_find(tokens[2]);
 		if (the_task == NULL){
 			output("task do not exist\r\n", 20);
 			return RET_FAILED;
@@ -220,7 +220,7 @@ static int set_task_table_title(void){
 @ brief: Write task's infomations to buffer and send: name, priority, state, min_stack, occupied_tick
 */
 void output_task_info(task_handle tsk, void *nothing){
-	int usage = get_os_tick() / 100;
+	int usage = os_get_tick() / 100;
 	usage = tsk->occupied_tick / usage;
 
 	int size = sprintf(output_buf, "%-10s  %6d  %8s   %4d   %9d \r\n",  

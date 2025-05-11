@@ -21,7 +21,7 @@
 // lwip version: 2.1
 
 u_int sys_now(void) {
-	return get_os_tick();
+	return os_get_tick();
 }
 
 void sys_init(void) {
@@ -135,7 +135,7 @@ err_t sys_mbox_trypost_fromisr(sys_mbox_t *q, void *msg) {
 }
 
 u_int sys_arch_mbox_fetch(sys_mbox_t *q, void **msg, u_int timeout) {
-	u_int stamp = get_os_tick();
+	u_int stamp = os_get_tick();
 	int ret = msgq_front(*q, msg, timeout);
 
 	if (ret == RET_FAILED){
@@ -144,7 +144,7 @@ u_int sys_arch_mbox_fetch(sys_mbox_t *q, void **msg, u_int timeout) {
 	}
 	msgq_pop(*q);
 
-	return get_os_tick() - stamp;
+	return os_get_tick() - stamp;
 }
 
 u_int sys_arch_mbox_tryfetch(sys_mbox_t *q, void **msg) {

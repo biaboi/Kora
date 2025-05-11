@@ -27,8 +27,10 @@
 
 */
 
-typedef 
-    enum task_stat {running, ready, sleeping, blocking, suspend}
+typedef void (*transfer_t)(char *, int);
+
+typedef enum {
+    running, ready, sleeping, blocking, suspend}
 task_stat;
 
 
@@ -63,7 +65,7 @@ task_handle qcreate(vfunc code, int priority, int size);
 void task_delete(task_handle tsk);
 void task_delete_isr(task_handle tsk);
 
-int modify_priority(task_handle tsk, int new);
+int task_modify_priority(task_handle tsk, int new);
 void task_ready(task_handle tsk);
 void task_ready_isr(task_handle tsk);
 void sleep(u_int xtick);
@@ -72,10 +74,10 @@ void block_isr(task_handle tsk, list_t *blklst, u_int wait_ticks);
 void task_suspend(task_handle tsk);
 void task_suspend_isr(task_handle tsk);
 
-task_stat get_task_state(task_handle tsk);
-u_int get_task_left_sleep_tick(task_handle tsk);
-char* get_task_name(task_handle tsk);
-task_handle find_task(char *name);
+task_stat task_state(task_handle tsk);
+u_int task_left_sleep_tick(task_handle tsk);
+char* task_name(task_handle tsk);
+task_handle task_find(char *name);
 void foreach_task(task_process_t process, void *para);
 
 void enter_critical(void);
@@ -83,18 +85,17 @@ void exit_critical(void);
 void disable_task_switch(void);
 void enable_task_switch(void);
 bool is_scheduler_running(void);
-task_handle get_running_task(void);
 task_handle self(void);
-int get_os_tick(void);
-int get_cpu_utilization(void);
-int get_task_num(void);
+task_handle os_get_running_task(void);
+int os_get_tick(void);
+int os_get_cpu_utilization(void);
+int os_get_task_num(void);
 
 void Kora_start(void);
 
 
 
-
-typedef enum {ipc_sem, ipc_mtx, ipc_msgq, ipc_evt} ipc_type;
+typedef enum {ipc_sem, ipc_mtx, ipc_msgq, ipc_evt, ipc_sq} ipc_type;
 
 /****************************** ipc tracer ********************************/
 // #if UNDER_CONSTRUCTION
@@ -125,6 +126,7 @@ sem_t sem_create(int max_cnt, int init_cnt);
 int sem_delete(sem_t s);
 
 int sem_wait(sem_t s, u_int wait_ticks);
+int sem_peek(cntsem *s, u_int wait_ticks);
 int sem_signal(sem_t s);
 int sem_signal_isr(sem_t s);
 
@@ -215,6 +217,9 @@ streamq_t streamq_create(int buf_size);
 int streamq_delete(streamq_t sq);
 int streamq_push(streamq_t sq, void *data, u_short size, u_int wait_ticks);
 int streamq_push_isr(streamq_t sq, void *data, u_short size);
+int streamq_front(streamq_t sq, void *output, u_int wait_ticks);
+int streamq_front_pointer(streamq_t sq, void **pointer, int *outlen, u_int wait_ticks);
+void streamq_pop(streamq_t sq);
 
 /******************************** kernel hooks **********************************/
 

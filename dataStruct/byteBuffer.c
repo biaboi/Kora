@@ -1,7 +1,6 @@
 #include "byteBuffer.h"
 #include <string.h>
 
-#include "stdio.h"
 
 void byte_buffer_init(byte_buffer* bbf, u_char *buf, int buf_size){
 	bbf->head = buf;
@@ -81,6 +80,10 @@ int byte_buffer_front(byte_buffer *bbf, void *output){
 		return RET_FAILED;
 
 	u_short len = *(u_short*)(bbf->front);
+	if (len == 0xFFFF){
+		bbf->front = bbf->head;
+		len = *(u_short*)(bbf->front);
+	}
 	memcpy(output, bbf->front + 2, len);
 
 	return len;
@@ -101,6 +104,10 @@ int byte_buffer_front_pointer(byte_buffer *bbf, void **pointer, int *outlen){
 	} 
 
 	u_short len = *(u_short*)(bbf->front);
+	if (len == 0xFFFF){
+		bbf->front = bbf->head;
+		len = *(u_short*)(bbf->front);
+	}
 	*pointer = bbf->front + 2;
 	*(u_short*)outlen = len;
 

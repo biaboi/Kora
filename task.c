@@ -84,7 +84,7 @@ static void remove_from_ready(task_handle tsk){
 @ brief: Modify the task's priority.
 @ retv: Task's old priority.
 */
-int modify_priority(task_handle tsk, int new_prio){
+int task_modify_priority(task_handle tsk, int new_prio){
 	os_assert(new_prio < CFG_MAX_PRIOS);
 
 	int old = tsk->priority;
@@ -261,7 +261,7 @@ void sleep(u_int xtick){
 }
 
 
-u_int get_task_left_sleep_tick(task_handle tsk){
+u_int task_left_sleep_tick(task_handle tsk){
 	u_int tick = tsk->state_node.value;
 	if (tick == UINT_MAX)
 		return UINT_MAX;
@@ -273,12 +273,12 @@ u_int get_task_left_sleep_tick(task_handle tsk){
 }
 
 
-task_stat get_task_state(task_handle tsk){
+task_stat task_state(task_handle tsk){
 	return tsk->state;
 }
 
 
-task_handle get_running_task(void){
+task_handle os_get_running_task(void){
 	return current_tcb;
 }
 
@@ -288,7 +288,7 @@ task_handle self(void){
 }
 
 
-char* get_task_name(task_handle tsk){
+char* task_name(task_handle tsk){
 	if (tsk == NULL)
 		tsk = current_tcb;
 	return tsk->name;
@@ -307,13 +307,13 @@ void foreach_task(task_process_t process, void *para){
 }
 
 
-task_handle find_task(char *name){
+task_handle task_find(char *name){
 	list_node_t *iter = all_tasks.dmy.next;
 	
 	while (iter != &(all_tasks.dmy)){
 		tcb_t *ptsk = LINK_NODE_TO_TCB(iter);
 
-		if (strcmp(name, ptsk->name) == 0)
+		if (strncmp(name, ptsk->name, CFG_TASK_NAME_LEN) == 0)
 			return ptsk;
 		iter = iter->next;
 	}
@@ -580,7 +580,7 @@ static void idle_task(void *nothing){
 			++idle_tick;
 			last_tick = os_tick_count;
 		}
-		if (os_tick_count - begin_tick >= 400){
+			if (os_tick_count - begin_tick >= 400){
 			cpu_utilization = 100 - idle_tick/4;
 			begin_tick = os_tick_count;
 			idle_tick = 0;
@@ -594,14 +594,14 @@ static void idle_task(void *nothing){
 /*
 @ brief: Use idle task to calculate cpu utilization, poor precision
 */
-int get_cpu_utilization(void){
+int os_get_cpu_utilization(void){
 	if (os_tick_count - begin_tick > 400)
 		return 100;
 	return cpu_utilization;
 }
 
 
-int get_os_tick(void){
+int os_get_tick(void){
 	return os_tick_count;
 }
 
@@ -609,7 +609,7 @@ int get_os_tick(void){
 /*
 @ brief: Get the number of existing tasks (in whatever state)
 */
-int get_task_num(void){
+int os_get_task_num(void){
 	return LIST_LEN(&all_tasks);
 }
 

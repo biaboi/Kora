@@ -5,8 +5,8 @@
 
 typedef struct {
 	u_char   *head;
-	u_short   size;
-	u_short   count;
+	u_short   size;   // size of buffer
+	u_short   count;  // number of data 
 
 	u_char   *front;
 	u_char   *rear;
