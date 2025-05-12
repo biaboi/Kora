@@ -10,18 +10,23 @@
 #include "Kora.h"
 #include <string.h>
 
-/********************************** ipc hooks **********************************/
 
-// #if CFG_USE_IPC_HOOKS
-// 	ipc_hook_callback ipc_hooks[ipc_hook_nums] = {0};
-// 	#define EXECUTE_HOOK(x, ipc, type, tsk) \
-// 		do { if (ipc_hooks[x]) (ipc_hooks[x])(ipc, type, tsk);} while (0)
-// #else
-// 	#define EXECUTE_HOOK(x, para) ((void)0)
-// #endif
-
-#define EXECUTE_HOOK(a, b, c, d)  (void)0
-
+/**
+ * @file ipc.c
+ * @brief Definitions of inter-process communication (IPC) structures.
+ *
+ * This file provides the definitions and initializations of various IPC structures,
+ * including semaphores, mutexes, message queues, event groups, and stream queues.
+ * These components are essential for managing synchronization and communication
+ * between tasks or processes within the system.
+ *
+ * Structures included:
+ * - Semaphore
+ * - Mutex
+ * - Message Queue
+ * - Event Group
+ * - Stream Queue
+ */
 
 #define EVENT_NODE_TO_TCB(pnode) ((tcb_t*)( (u_int)(pnode) - offsetof(tcb_t, event_node)) )
 
@@ -47,8 +52,8 @@ extern u_int lock_nesting;
 
 /************************** counting semaphore ****************************/
 /*
-	In most cases, "signal" operation is not that important, 
-	so it will not be block if exceed the maximum counting
+	Note: in most cases, "signal" operation is not that important, 
+	so it will not be block if exceed the maximum counting.
 */
 
 void sem_init(cntsem *s, int max_cnt, int init_cnt){
@@ -62,9 +67,9 @@ void sem_init(cntsem *s, int max_cnt, int init_cnt){
 
 cntsem* sem_create(int max_cnt, int init_cnt){
 	cntsem *s = malloc(sizeof(cntsem));
-	if (s == NULL){
+	if (s == NULL)
 		return NULL;
-	}
+
 	sem_init(s, max_cnt, init_cnt);
 	return s;
 }
@@ -84,11 +89,11 @@ int sem_delete(cntsem *s){
 
 /*
 @ brief: Wait for the semaphore to be ready and take one.
-@ retv:  RET_FAILED -> wait timeout
-         Other -> the number of remain semaphore
+@ retv:  RET_SUCCESS / RET_FAILED(timeout)
+@ note: If wait_ticks == 0, Whether the operation is successful or not,
+        it will exit immediately without triggering an schedule
 */
 int sem_wait(cntsem *s, u_int wait_ticks){
-	EXECUTE_HOOK(hook_wait_enter, s, ipc_sem, current_tcb);
 	enter_critical();
 
 	while (s->count <= 0){
@@ -96,7 +101,6 @@ int sem_wait(cntsem *s, u_int wait_ticks){
 			exit_critical();
 			return RET_FAILED;
 		}
-		EXECUTE_HOOK(hook_wait_blocked, s, ipc_sem, current_tcb);
 		block(&s->block_list, wait_ticks);
 		if (s->count > 0)
 			break;
@@ -135,6 +139,11 @@ int sem_peek(cntsem *s, u_int wait_ticks){
 }
 
 
+/*
+@ brief: Release a semaphore. 
+@ retv: RET_FAILED -> timeout
+        Other -> semaphore current count
+*/
 int sem_signal(cntsem *s){
 	os_assert(lock_nesting == 0);
 
@@ -144,7 +153,6 @@ int sem_signal(cntsem *s){
 		return RET_FAILED;
 	}
 	s->count += 1;
-	EXECUTE_HOOK(hook_release, s, ipc_sem, current_tcb);
 	wakeup(&s->block_list);
 	exit_critical();
 	return s->count;
@@ -163,8 +171,9 @@ int sem_signal_isr(cntsem *s){
 
 /******************************** mutex ********************************/
 /*
-	Mutex can handles priority inversion correctly
+	Note: mutex is the only ipc that can handles priority inversion correctly.
 */
+
 void mutex_init(mutex* mtx){
 	mtx->bkp_prio = 0;
 	mtx->lock_owner = NULL;
@@ -176,6 +185,7 @@ mutex* mutex_create(void){
 	mutex *mtx = malloc(sizeof(mutex));
 	if (mtx == NULL)
 		return NULL;
+
 	mutex_init(mtx);
 	return mtx;
 }
@@ -193,10 +203,12 @@ int mutex_delete(mutex *mtx){
 }
 
 
+/*
+@ brief: Get a mutex.
+*/
 void mutex_lock(mutex *mtx){
 	os_assert(lock_nesting == 0);
 
-	EXECUTE_HOOK(hook_wait_enter, mtx, ipc_mtx, current_tcb);
 	enter_critical();
 	while (1){
 		if (mtx->lock_owner == NULL){
@@ -214,12 +226,14 @@ void mutex_lock(mutex *mtx){
 		if (owner_prio > cur_prio)
 			mtx->bkp_prio = task_modify_priority(owner, cur_prio);
 
-		EXECUTE_HOOK(hook_wait_blocked, mtx, ipc_mtx, current_tcb);
 		block(&mtx->block_list, FOREVER);
 	}
 }
 
 
+/*
+@ brief: Release a mutex.
+*/
 void mutex_unlock(mutex *mtx){
 	os_assert(lock_nesting == 0);
 
@@ -239,24 +253,6 @@ void mutex_unlock(mutex *mtx){
 }
 
 /******************************** message queue ********************************/
-/*
-	When a large amount of data needs to be transferred, 
-	to avoid a large number of meaningless copies,
-	threads will use a common buffer and use message queue to send the pointer to the buffer. 
-
-	In this case, you need to wait for the queue to empty a place, then write the buffer,
-	and then write the pointer to the queue.
-
-	msgque_wait() is used to handle this situation like this:
-
-	int ret = msgque_wait(queue, xticks);
-	if (ret == RET_SUCCESS){
-		enter_critical();
-		write_buffer(buffer_point, data, size);
-		msgque_overwrite(queue, buffer_point);
-		exit_critical();
-	}
-*/
 
 void msgq_init(msgque *mq, int nitems, int size){
 	void *buf = (void*)((u_int)mq + sizeof(msgque));
@@ -284,13 +280,17 @@ int msgq_delete(msgque *mq){
 					   		     | mq->rb_list.list_len;
 	if (stat != 0)
 		return RET_FAILED;
-
 	if (is_heap_addr(mq))
 		queue_free(mq);
+
 	return RET_SUCCESS;
 }
 
 
+/*
+@ brief: Push an item into message queue.
+@ retv: RET_SUCCESS / RET_FAILED
+*/
 int msgq_push(msgque *mq, void *item, u_int wait_ticks){
 	os_assert(lock_nesting == 0);
 
@@ -308,9 +308,7 @@ int msgq_push(msgque *mq, void *item, u_int wait_ticks){
 			return RET_FAILED;
 		}
 
-		EXECUTE_HOOK(hook_push_blocked, mq, ipc_msgq, current_tcb);
 		block(&mq->wb_list, wait_ticks);
-
 		wait_ticks = task_left_sleep_tick(current_tcb);
 	}
 }
@@ -318,11 +316,11 @@ int msgq_push(msgque *mq, void *item, u_int wait_ticks){
 
 /*
 @ brief: Waiting until the queue has space.
+@ retv: RET_SUCCESS / RET_FAILED
 */
 int msgq_waitfor_push(msgque *mq, u_int wait_ticks){
 	os_assert(lock_nesting == 0);
 
-	EXECUTE_HOOK(hook_wait_enter, s, ipc_sem, current_tcb);
 	enter_critical();
 	while (1){
 		if (!MSGQUE_FULL(mq)){
@@ -335,14 +333,16 @@ int msgq_waitfor_push(msgque *mq, u_int wait_ticks){
 			return RET_FAILED;
 		}
 
-		EXECUTE_HOOK(hook_wait_blocked, mq, ipc_msgq, current_tcb);
-		block(&mq->wb_list, wait_ticks);
-		
+		block(&mq->wb_list, wait_ticks);	
 		wait_ticks = task_left_sleep_tick(current_tcb);
 	}
 }
 
 
+/*
+@ brief: Forced write, if the queue is full, the item at the 
+         beginning of the queue will be overwritten.
+*/
 void msgq_overwrite(msgque *mq, void *item){
 	enter_critical();
 
@@ -377,16 +377,16 @@ int msgq_front(msgque *mq, void *buf, u_int wait_ticks){
 			return RET_FAILED;
 		}
 
-		EXECUTE_HOOK(hook_wait_blocked, mq, ipc_msgq, current_tcb);
 		block(&mq->rb_list, wait_ticks);
-
 		wait_ticks = task_left_sleep_tick(current_tcb);
 	}
 }
 
 
+/*
+@ brief: Pop the first item of the queue.
+*/
 void msgq_pop(msgque *mq){
-	EXECUTE_HOOK(hook_wait_enter, mq, ipc_msgq, current_tcb);
 	enter_critical();
 	queue *que = &mq->que;
 	if (que->len > 0){
@@ -401,9 +401,9 @@ void msgq_pop(msgque *mq){
 
 /******************************** event **********************************/
 /*
-	Use the 'value' variable of task's event_node to store bits.
+	Use the variable 'evt_flags' int tcb to store bits.
 	Up to support 24 bits event.
-	Use the 30th bit of 'value' to store the condition (or/and).
+	Use the 30th bit of evt_flags to store the condition (or/and).
 */
 
 void evt_group_init(event_t grp, evt_bits_t init_bits){
@@ -414,9 +414,9 @@ void evt_group_init(event_t grp, evt_bits_t init_bits){
 
 event_t evt_group_create(evt_bits_t init_bits){
 	event_t grp = malloc(sizeof(cntsem));
-	if (grp == NULL){
+	if (grp == NULL)
 		return NULL;
-	}
+
 	evt_group_init(grp, init_bits);
 	return grp;
 }
@@ -464,14 +464,12 @@ static bool is_bits_satisfy(event_t grp, u_int evt_val){
 int evt_wait(event_t grp, evt_bits_t bits, bool clr, int opt, u_int wait_ticks){
 	os_assert(bits < 0x01000000);
 
-	EXECUTE_HOOK(hook_wait_enter, mq, ipc_msgq, current_tcb);
 	enter_critical();
-	list_node_t *enode = &current_tcb->event_node;
-	enode->value = (u_int)bits;
-	enode->value |= (opt << 30);
+	u_int *flags = &current_tcb->evt_flags;
+	*flags = (u_int)bits;
+	*flags |= (opt << 30);
 
-	if (is_bits_satisfy(grp, enode->value) == false){
-		EXECUTE_HOOK(hook_wait_blocked, grp, ipc_evt, current_tcb);
+	if (is_bits_satisfy(grp, *flags) == false){
 		block(&grp->block_list, wait_ticks);
 
 		wait_ticks = task_left_sleep_tick(current_tcb);
@@ -489,6 +487,9 @@ int evt_wait(event_t grp, evt_bits_t bits, bool clr, int opt, u_int wait_ticks){
 }
 
 
+/*
+@ brief: Set event group bits.
+*/
 void evt_set(event_t grp, evt_bits_t bits){
 	enter_critical();
 
@@ -496,8 +497,9 @@ void evt_set(event_t grp, evt_bits_t bits){
 	list_node_t *iter = &grp->block_list.dmy;
 
 	while ((iter = iter->next) != &grp->block_list.dmy){
-		if (is_bits_satisfy(grp, iter->value)){
-			task_ready(EVENT_NODE_TO_TCB(iter));
+		task_handle tsk = EVENT_NODE_TO_TCB(iter);
+		if (is_bits_satisfy(grp, tsk->evt_flags)){
+			task_ready(tsk);
 			enter_critical();
 		}
 	}
@@ -511,12 +513,16 @@ void evt_set_isr(event_t grp, evt_bits_t bits){
 	list_node_t *iter = &grp->block_list.dmy;
 
 	while ((iter = iter->next) != &grp->block_list.dmy){
-		if (is_bits_satisfy(grp, iter->value))
-			task_ready_isr(EVENT_NODE_TO_TCB(iter));
+		task_handle tsk = EVENT_NODE_TO_TCB(iter);
+		if (is_bits_satisfy(grp, tsk->evt_flags))
+			task_ready_isr(tsk);
 	}
 }
 
 
+/*
+@ brief: Clear all bits.
+*/
 void evt_clear(event_t grp, evt_bits_t bits){
 	enter_critical();
 
@@ -560,9 +566,15 @@ streamq_t streamq_create(int buf_size){
 
 
 int streamq_delete(streamq_t sq){
-	return 0;
-}
+	if (LIST_NOT_EMPTY(&sq->wb_list) || LIST_NOT_EMPTY(&sq->rb_list))
+		return RET_FAILED;
 
+	if (!is_heap_addr(sq))
+		return RET_FAILED;
+
+	queue_free(sq);
+	return RET_SUCCESS;
+}
 
 
 /*
@@ -641,11 +653,11 @@ int streamq_front(streamq_t sq, void *output, u_int wait_ticks){
          outlen  -> Size of the data read from the buffer
 @ retv:  RET_SUCCESS / RET_FAILED.
 */
-int streamq_front_pointer(streamq_t sq, void **pointer, int *outlen, u_int wait_ticks){
+int streamq_front_pointer(streamq_t sq, void **pointer, u_short *outlen, u_int wait_ticks){
 	enter_critical();
 	while (1){
 		int ret = byte_buffer_front_pointer(&sq->bbf, pointer, outlen);
-		if (ret == RET_SUCCESS){
+		if (ret != RET_FAILED){
 			wakeup(&sq->wb_list);
 			exit_critical();
 			return RET_SUCCESS;

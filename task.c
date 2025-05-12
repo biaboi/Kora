@@ -8,13 +8,45 @@
 
 #include "KoraConfig.h"
 #include "Kora.h"
+#include "log.h"
+
 #include <string.h>
+
+/*
+ * @file task.c
+ * @brief Kora rtos task management file.
+ *
+ * This file implements essential task operations for the RTOS, including task
+ * creation, deletion, context switching, and utility functions such as tick retrieval.
+ * 
+ * Tasks are organized and managed using linked lists and list nodes, allowing efficient
+ * scheduling and state transitions.
+ *
+ * The scheduler supports up to 32 priority levels with preemptive and round-robin scheduling.
+ *
+ * Additionally, hook functions and logging mechanisms are provided to assist with debugging
+ * and system introspection.
+ */
+
+
+#if CFG_USE_KERNEL_HOOKS
+    vfunc kernel_hooks[kernel_hook_nums];
+	#define EXECUTE_HOOK(x, para) do{ if (kernel_hooks[x]) (kernel_hooks[x])(para);} while (0)
+#else
+	#define EXECUTE_HOOK(x, para) ((void)0)
+#endif
+
+
+#if CFG_USING_LOG_SYSTEM
+	log_module  kernel_log;
+#endif
+
 
 tcb_t * volatile current_tcb = NULL;
 
-u_int      prio_bitmap = 0;
-bool       flag_actively_sched = false;
-u_int      lock_nesting = 0;
+u_int  prio_bitmap = 0;
+bool   flag_actively_sched = false;
+u_int  lock_nesting = 0;
 
 static list_t          ready_lists[CFG_MAX_PRIOS];
 static list_node_t    *task_iter[CFG_MAX_PRIOS];
@@ -28,21 +60,12 @@ static int       switch_disable = 1;
 
 // These functions defined in port.c
 void start_first_task(void); 
-int get_highest_priority(void);
+int  get_highest_priority(void);
 void port_rt_stack_init(vfunc code, void *para, u_char *rt_stack);
-
 
 
 #define STATE_NODE_TO_TCB(pnode)    ((tcb_t*)( (u_int)(pnode) - offsetof(tcb_t, state_node)) )
 #define LINK_NODE_TO_TCB(pnode)     ((tcb_t*)( (u_int)(pnode) - offsetof(tcb_t, link_node)) )
-
-#if CFG_USE_IPC_COMM_HOOKS
-	vfunc ipc_comm_hooks[ipc_comm_hook_nums] = {0};
-	#define EXECUTE_HOOK(x, para) do{ if (ipc_comm_hooks[x]) (ipc_comm_hooks[x])(para);} while (0)
-#else
-	#define EXECUTE_HOOK(x, para) ((void)0)
-#endif
-
 
 /********************************** task state **********************************/
 /*
@@ -65,7 +88,7 @@ static int add_to_ready(task_handle tsk){
 
 
 /*
-@ brief: Remove the task from ready_list and update highest_prio
+@ brief: Remove the task from ready_list and update highest_prio.
 */
 static void remove_from_ready(task_handle tsk){
 	u_int prio = tsk->priority;
@@ -334,7 +357,7 @@ static void tcb_init(tcb_t *tcb, u_int prio, const char *name, u_char *start){
 	tcb->name[CFG_TASK_NAME_LEN-1] = 0;
 	tcb->priority = prio;
 	tcb->top_of_stack = (u_char*)((u_int)tcb - sizeof(u_int)*17);
-	tcb->start_addr = start;
+	tcb->start_addr = (u_char*)((u_int)start + sizeof(tcb_t));
 	tcb->state = ready;
 	LIST_NODE_INIT(&tcb->state_node);
 	LIST_NODE_INIT(&tcb->event_node);
@@ -343,7 +366,6 @@ static void tcb_init(tcb_t *tcb, u_int prio, const char *name, u_char *start){
 	tcb->magic = TCB_MAGIC_NUM;
 	tcb->min_stack = 999999;
 	tcb->occupied_tick = 0;
-
 	tcb->event_node.value = prio;
 
 	list_insert_end(&all_tasks, &tcb->link_node);
@@ -374,6 +396,8 @@ tcb_t* task_init(vfunc code, const char *name, void *para, u_int prio, u_char *s
 	tcb_init(new_tcb, prio, name, stk);
 	port_rt_stack_init(code, para, (u_char*)new_tcb);
 	add_to_ready(new_tcb);
+	log_info(&kernel_log, "Task created at %p, name = %s, priority = %d",
+			 new_tcb, name, prio);
 
 	return new_tcb;
 }
@@ -421,6 +445,7 @@ void task_delete(task_handle tsk){
 
 	list_remove(&tsk->link_node);
 
+	log_info(&kernel_log, "Task deleted: name = %s", tsk->name);
 	exit_critical();
 	call_sched();
 }
@@ -435,6 +460,7 @@ void task_delete_isr(task_handle tsk){
 		queue_free(tsk->start_addr);
 
 	list_remove(&tsk->link_node);
+	log_info(&kernel_log, "Task deleted: name = %s", tsk->name);
 
 	call_sched_isr();
 }
@@ -474,10 +500,27 @@ bool is_scheduler_running(void){
 	return (bool)(switch_disable == 0);
 }
 
+
+/*
+@ brief: Check whether task's stack used up
+*/
+static void stack_safety_check(void){
+	int free_stk_size = current_tcb->top_of_stack - current_tcb->start_addr;
+	if (free_stk_size < 40){
+		EXECUTE_HOOK(hook_stack_overf_isr, current_tcb);
+		log_error(&kernel_log, "Stack overflow in task %s", current_tcb->name);
+	}
+
+	if (free_stk_size < current_tcb->min_stack)
+		current_tcb->min_stack = free_stk_size;
+}
+
+
 /*
 @ brief: Find next task to execute
 */
 void schedule(void){
+	stack_safety_check();
 	list_node_t **it = &(task_iter[highest_prio]);
 	(*it) = (*it)->next;
 	if (*it == &(ready_lists[highest_prio].dmy))
@@ -487,7 +530,8 @@ void schedule(void){
 	current_tcb = STATE_NODE_TO_TCB(*it);
 
 	if (current_tcb->magic != TCB_MAGIC_NUM){
-		while (1) ;
+		log_fatal(&kernel_log, "overflows occurred in some places, and the tcb was corrupted");
+		while (1) {};
 	}
 }
 
@@ -504,22 +548,6 @@ static void wake_task_from_sleep(void){
 
 
 /*
-@ brief: Check whether task's stack used up
-*/
-static void stack_safety_check(void){
-	int free_stk_size = current_tcb->top_of_stack - current_tcb->start_addr;
-	if (free_stk_size < 40){
-		EXECUTE_HOOK(hook_stack_overf_isr, current_tcb);
-		while (1) ;
-	}
-
-	if (free_stk_size < current_tcb->min_stack)
-		current_tcb->min_stack = free_stk_size;
-}
-
-
-
-/*
 @ brief: 
 @ note: Action of the flag_actively_sched: If a task actively gives up CPU time by called call_sched(), 
                 the handler will not trigger a task switch when the next tick arrives
@@ -532,9 +560,6 @@ void os_tick_handler(void){
 
 	os_tick_count += 1;
 	current_tcb->occupied_tick += 1;
-
-	stack_safety_check();
-		
 	if (switch_disable > 0 || flag_actively_sched == true){
 		flag_actively_sched = false;
 		return;
@@ -567,6 +592,7 @@ static void idle_task(void *nothing){
 	extern splist *wait_for_free;
 
 	u_int last_tick = 0, idle_tick = 0;
+	log_info(&kernel_log, "RTOS start");
 	
 	while (1){
 		while (wait_for_free){
@@ -620,9 +646,12 @@ int os_get_task_num(void){
 void Kora_start(void){
 	list_init(&sleep_list);
 
+#if CFG_USING_LOG_SYSTEM
+	log_module_init(&kernel_log, "kernel", lev_warn);
+#endif
 
 	current_tcb = task_init(idle_task, "idle", NULL, CFG_MAX_PRIOS-1, 
-			idle_stack, IDLE_TASK_STACK_SIZE);
+	                        idle_stack, IDLE_TASK_STACK_SIZE);
 
 	os_tick_count = 0;
 	switch_disable = 0;
@@ -641,10 +670,10 @@ struct assert_info {
 } assert_info;
 
 
-void os_assert_failed(char *file_name, int line){
-	assert_info.file_name = file_name;
+void os_assert_failed(char *name, int line){
+	assert_info.file_name = name;
 	assert_info.line = line;
-	while (1);
+	log_error(&kernel_log, "assert failed at \"%s\", line %d", name, line);
 }
 
 #endif

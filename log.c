@@ -13,25 +13,31 @@
 #include <stdio.h>
 #include <stdarg.h>
 
+/**
+ * @file    log.c
+ * @brief   Logging system implementation for kernel and user space.
+ *
+ * This file provides a logging system designed for both kernel and user-level modules.
+ * It utilizes a stream queue to buffer and transmit log messages efficiently.
+ * The system supports DMA-based transmission for improved performance.
+ * Logging modules are categorized by tags to differentiate various subsystems.
+ */
 
+#define LOG_TASK_STACK_SIZE   512
 
 #if CFG_USING_LOG_SYSTEM
 
-/*
-	This file provides a log system for kernel and user.
-	Feature: 1. designed for the rtos and DMA transmit
-	         2. module + level, flexible management of log output
-	         3. optional timestamp
-*/
+static sem_t   dma_sem;
+static char    log_task_stack[LOG_TASK_STACK_SIZE];
 
-static cntsem  output_dma_sem;
-static char    log_task_stack[1024];
+static streamq  log_que;
+static char     log_buffer[CFG_LOG_BUFFER_SIZE];
 
-static streamq log_que;
-static char    log_buffer[CFG_LOG_BUFFER_SIZE];
+static int           cur_mode;
+static transfer_t    log_output;
 
-static int         cur_mode;
-static transfer_t  log_output;
+static int num_of_modules = 0;
+static log_module_t  all_modules[CFG_MAX_NUM_OF_MODULE];
 
 static const char *level_str[5] = {
 	"debug", "info", "warn", "error", "fatal"
@@ -43,7 +49,8 @@ void log_module_init(log_module *module, char *name, log_level out_lev){
 	module->name[15] = 0;
 	module->output_level = out_lev;
 	module->onoff = 1;
-	module->err_count = 0;
+	module->fatal_callback = NULL;
+	all_modules[num_of_modules++] = module;
 }
 
 
@@ -72,23 +79,26 @@ void module_off(log_module_t module){
 }
 
 
-/*
-@ brief: Use this function to notice log_task that DMA transmit complete.
-@ note: This function must be called in ISR.
-*/
-void log_dma_ready_notify(void){
-	sem_signal_isr(&output_dma_sem);
+void module_set_level(log_module_t module, log_level lev){
+	module->output_level = lev;
 }
 
+
+void module_set_callback(log_module_t module, vfunc cb){
+	module->fatal_callback = cb;
+}
+
+
+log_module_t module_find(char *name){
+	for (int i = 0; i < num_of_modules; ++i)
+		if (strncmp(all_modules[i]->name, name, 16) == 0)
+			return all_modules[i];
+	return NULL;
+}
 
 void log_set_output(transfer_t output, int mode){
 	log_output = output;
 	cur_mode = mode;
-}
-
-
-void log_set_level(log_module_t module, log_level lev){
-	module->output_level = lev;
 }
 
 
@@ -103,11 +113,14 @@ void os_log(log_module_t module, log_level level, const char *fmt, ...){
 	char buffer[128];
 	va_list args;
 
-	int offset = snprintf(buffer, 128, "<%s>[%s]", module->name, level_str[level]);
+	int offset = snprintf(buffer, 28, "<%s>[%s]", module->name, level_str[level]);
 
 	va_start(args, fmt);
-	offset += vsnprintf(buffer + offset, 128 - offset, fmt, args);
+	offset += vsnprintf(buffer + offset, 100 - offset, fmt, args);
 	va_end(args);
+
+	if (level == lev_fatal && module->fatal_callback != NULL)
+		(module->fatal_callback)(NULL);
 
 	u_int wait;
 	if (level >= lev_warn)
@@ -121,12 +134,12 @@ void os_log(log_module_t module, log_level level, const char *fmt, ...){
 
 static void log_task(void *nothing){
 	char *str;
-	int len = 0;
+	u_short len = 0;
 
 	while (1){
 		streamq_front_pointer(&log_que, (void**)&str, &len, FOREVER);
 		if (cur_mode == log_mode_dma)
-			sem_wait(&output_dma_sem, 1000);
+			sem_wait(dma_sem, 1000);
 		log_output(str, len);
 		streamq_pop(&log_que);
 	}
@@ -138,19 +151,22 @@ static void log_task(void *nothing){
 @ param: Task_Prio -> log_task's priority, depend on transmit function is in
                       DMA mode or block mode, the former use higher priority
                       and the latter use lower priority
+         Out -> output function
+         S -> If using DMA to transfer data, pass in the semaphore that controls the DMA, 
+              otherwise pass in NULL.
          Mode -> transmit function whether using DMA 
 @ retv: Log_task's handle.
 */
-task_handle log_system_init(int task_prio, transfer_t out, int mode){
-	task_handle h;
-	sem_init(&output_dma_sem, 1, 1);
+task_handle log_system_init(int task_prio, transfer_t out, sem_t s, int mode){
+	dma_sem = s;
+	sem_init(dma_sem, 1, 1);
 	streamq_init(&log_que, log_buffer, CFG_LOG_BUFFER_SIZE);
-	h = task_init(log_task, "log task", NULL, task_prio, (u_char*)log_task_stack, 1024);
 
 	log_output = out;
 	cur_mode = mode;
 
-	return h;
+	return task_init(log_task, "log task", NULL, task_prio, 
+		            (u_char*)log_task_stack, LOG_TASK_STACK_SIZE);
 }
 
 #endif // CFG_USING_LOG_SYSTEM

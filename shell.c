@@ -7,9 +7,30 @@
  */
 
 #include "Kora.h"
+#include "KoraConfig.h"
+#include "log.h"
 #include "shell.h"
+
 #include "stdio.h"
 #include "string.h"
+
+/*
+	Command List:
+
+	1. task      - Task management commands
+	   -a        : Display information for all tasks
+	   -s        : Suspend a task
+	   -r        : Resume a task
+	   -i <name> : Display information for the specified task
+
+	2. heap      - Display current heap usage and state
+
+	3. log       - Logging control commands
+	   <name> <op>
+	     op:
+	       on/off               : Enable or disable the specified module
+	       debug/info/warn/error: Set the output log level for the module
+*/
 
 
 #define NL  "\r\n"
@@ -24,6 +45,7 @@ static evt_group     recv_evtgrp;
 static transfer_t    output = NULL;
 
 
+
 typedef struct {
     const char *cmd;
     int (*handler)(void);
@@ -34,9 +56,12 @@ typedef struct {
 
 int __task(void);
 int __heap(void);
+int __log(void);
 
 command_t commands[] = { {"task", __task}, 
-					     {"heap", __heap},  };
+					     {"heap", __heap},  
+					     {"log", __log},
+};
 
 #define commands_size (sizeof(commands) / sizeof(command_t))
 
@@ -75,7 +100,6 @@ static int exec_cmd(char * cmd){
 }
 
 
-
 /*
 @ brief: Copy intput data to buffer and wake up shell_task
 */
@@ -102,7 +126,7 @@ void shell_task(void *nothing){
 void shell_init(int prio, transfer_t output_func){
 	output = output_func;
 	evt_group_init(&recv_evtgrp, 0);
-	task_init(shell_task, "shell", NULL, prio, task_stack, 1100);
+	task_init(shell_task, "shell", NULL, prio, task_stack, 800);
 }
 
 
@@ -131,7 +155,7 @@ static int __task(void) {
 	else if (strncmp(tokens[1], "-s", CFG_TASK_NAME_LEN) == 0){
 		task_handle the_task = task_find(tokens[2]);
 		if (the_task == NULL){
-			output("task do not exist\r\n", 20);
+			output("task do not exist"NL, 20);
 			return RET_FAILED;
 		}
 		else if (task_state(the_task) != suspend)
@@ -143,7 +167,7 @@ static int __task(void) {
 	else if (strncmp(tokens[1], "-r", CFG_TASK_NAME_LEN) == 0){
 		task_handle the_task = task_find(tokens[2]);
 		if (the_task == NULL){
-			output("task do not exist\r\n", 20);
+			output("task do not exist"NL, 20);
 			return RET_FAILED;
 		}
 		else if (task_state(the_task) > ready){
@@ -157,7 +181,7 @@ static int __task(void) {
 	else if (strncmp(tokens[1], "-i", CFG_TASK_NAME_LEN) == 0) {
 		task_handle the_task = task_find(tokens[2]);
 		if (the_task == NULL){
-			output("task do not exist\r\n", 20);
+			output("task do not exist"NL, 20);
 			return RET_FAILED;
 		}
 		else {
@@ -171,7 +195,7 @@ static int __task(void) {
 	}
 
 	else {
-		output("unknown parameter\r\n", 20);
+		output("unknown parameter"NL, 20);
 		return RET_FAILED;
 	}
 
@@ -198,6 +222,34 @@ static int __task(void) {
 	}
 
 #endif
+
+
+int __log(void){
+	log_module_t module = module_find(tokens[1]);
+	if (module == NULL){
+		output("module do not exist"NL, 22);
+		return RET_FAILED;
+	}
+
+	if (strncmp(tokens[2], "on", 8) == 0)
+		module->onoff = 1;
+	else if (strncmp(tokens[2], "off", 8) == 0)
+		module->onoff = 0;
+	else if (strncmp(tokens[2], "debug", 8) == 0)
+		module->output_level = lev_debug;
+	else if (strncmp(tokens[2], "info", 8) == 0)
+		module->output_level = lev_info;
+	else if (strncmp(tokens[2], "warn", 8) == 0)
+		module->output_level = lev_warn;
+	else if (strncmp(tokens[2], "error", 8) == 0)
+		module->output_level = lev_error;
+	else {
+		output("unknown parameter"NL, 20);
+		return RET_FAILED;
+	}
+
+	return RET_SUCCESS;
+}
 
 /**************************** shell commands end ****************************/
 
@@ -254,6 +306,3 @@ static int output_heap_state(void){
 				info->max_free_block_size,
 				info->left_block_num  );
 }
-
-
-

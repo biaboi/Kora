@@ -43,6 +43,7 @@ typedef struct __tcb {
     char            name[CFG_TASK_NAME_LEN];
     u_int           min_stack;        // store the minimum remaining stack size
     task_stat       state;
+    u_int           evt_flags;        // used in event group
     list_node_t     state_node;       // state_node will be only mounted on ready_list or sleep_list
     list_node_t     event_node;       
     list_node_t     link_node;        // once the task is created, it is mounted to the all_tasks list 
@@ -97,19 +98,6 @@ void Kora_start(void);
 
 typedef enum {ipc_sem, ipc_mtx, ipc_msgq, ipc_evt, ipc_sq} ipc_type;
 
-/****************************** ipc tracer ********************************/
-// #if UNDER_CONSTRUCTION
-
-
-// typedef struct {
-//     const char *name;
-//     void (*on_wait)(const char *name, task_handle task);
-//     void (*on_release)(const char *name, task_handle task);
-//     uint32_t hit_count;
-// } ipc_tracer_t;
-
-// typedef void (*trace_cb)(char *, task_handle);
-// #endif
 
 /************************** counting semaphore ****************************/
 
@@ -218,7 +206,7 @@ int streamq_delete(streamq_t sq);
 int streamq_push(streamq_t sq, void *data, u_short size, u_int wait_ticks);
 int streamq_push_isr(streamq_t sq, void *data, u_short size);
 int streamq_front(streamq_t sq, void *output, u_int wait_ticks);
-int streamq_front_pointer(streamq_t sq, void **pointer, int *outlen, u_int wait_ticks);
+int streamq_front_pointer(streamq_t sq, void **pointer, u_short *outlen, u_int wait_ticks);
 void streamq_pop(streamq_t sq);
 
 /******************************** kernel hooks **********************************/
@@ -244,32 +232,5 @@ typedef enum {
     #define  KERNEL_HOOK_DEL(x)        ((void)0)
 #endif
 
-/********************************* ipc hooks ***********************************/
-
-#if UNDER_CONSTRUCTION
-// typedef void (*ipc_hook_callback)(void *ipc, int type, task_handle tsk);
-
-// typedef enum {
-//     hook_wait_enter = 0,
-//     hook_wait_blocked,
-//     hook_wait_success,
-//     hook_wait_timeout,
-//     hook_release,
-//     hook_give_ready,
-//     hook_push_blocked,
-
-//     ipc_hook_nums
-// } ipc_hooks_t;
-
-
-// #if CFG_USE_IPC_COMM_HOOKS
-//     extern   ipc_hook_callback   ipc_hooks[ipc_hook_nums]
-//     #define  IPC_COMM_HOOK_ADD(x, func)  (ipc_hooks[x] = (func))
-//     #define  IPC_COMM_HOOK_DEL(x)        (ipc_hooks[x] = NULL)
-// #else
-//     #define  IPC_COMM_HOOK_ADD(x, func)  ((void)0)
-//     #define  IPC_COMM_HOOK_DEL(x)        ((void)0)
-// #endif
-#endif
 
 #endif  // _KORA_H

@@ -96,7 +96,7 @@ int byte_buffer_front(byte_buffer *bbf, void *output){
          outlen  -> Size of the data read from the buffer
 @ retv:  RET_SUCCESS / RET_FAILED.
 */
-int byte_buffer_front_pointer(byte_buffer *bbf, void **pointer, int *outlen){
+int byte_buffer_front_pointer(byte_buffer *bbf, void **pointer, u_short *outlen){
 	if (bbf->count == 0){
 		*pointer = NULL;
 		*outlen = 0;

@@ -1,5 +1,5 @@
-#ifndef	_UNVS_CONFIG_H
-#define _UNVS_CONFIG_H
+#ifndef	_KORA_CONFIG_H
+#define _KORA_CONFIG_H
 
 
 #define CFG_CPU_CLOCK_HZ            64000000
@@ -16,6 +16,7 @@
 
 #define CFG_USING_LOG_SYSTEM        1
 #define CFG_LOG_BUFFER_SIZE         400
+#define CFG_MAX_NUM_OF_MODULE       8
 
 #define CFG_USE_KERNEL_HOOKS        1
 #define CFG_USE_ALLOC_HOOKS         1
