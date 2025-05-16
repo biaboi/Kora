@@ -33,8 +33,6 @@
 */
 
 
-#define NL  "\r\n"
-
 #define RECV_EVT_BIT  1
 
 static u_char   task_stack[1100];

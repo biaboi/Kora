@@ -25,6 +25,8 @@
 // must open CFG_ALLOW_DYNAMIC_ALLOC
 #define CFG_TRACE_IPC               1   
 
+#define NL  "\n"
+
 #include "port.h"
 
 #endif

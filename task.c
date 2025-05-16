@@ -8,9 +8,9 @@
 
 #include "KoraConfig.h"
 #include "Kora.h"
-#include "log.h"
 
 #include <string.h>
+#include <stdio.h>
 
 /*
  * @file task.c
@@ -24,8 +24,8 @@
  *
  * The scheduler supports up to 32 priority levels with preemptive and round-robin scheduling.
  *
- * Additionally, hook functions and logging mechanisms are provided to assist with debugging
- * and system introspection.
+ * Additionally, hook functions are provided to assist with debugging and system introspection.
+ * 
  */
 
 
@@ -34,11 +34,6 @@
 	#define EXECUTE_HOOK(x, para) do{ if (kernel_hooks[x]) (kernel_hooks[x])(para);} while (0)
 #else
 	#define EXECUTE_HOOK(x, para) ((void)0)
-#endif
-
-
-#if CFG_USING_LOG_SYSTEM
-	log_module  kernel_log;
 #endif
 
 
@@ -396,8 +391,7 @@ tcb_t* task_init(vfunc code, const char *name, void *para, u_int prio, u_char *s
 	tcb_init(new_tcb, prio, name, stk);
 	port_rt_stack_init(code, para, (u_char*)new_tcb);
 	add_to_ready(new_tcb);
-	log_info(&kernel_log, "Task created at %p, name = %s, priority = %d",
-			 new_tcb, name, prio);
+	printf("Task created at %p, name = %s, priority = %d"NL, new_tcb, name, prio);
 
 	return new_tcb;
 }
@@ -445,7 +439,7 @@ void task_delete(task_handle tsk){
 
 	list_remove(&tsk->link_node);
 
-	log_info(&kernel_log, "Task deleted: name = %s", tsk->name);
+	printf("Task deleted: name = %s"NL, tsk->name);
 	exit_critical();
 	call_sched();
 }
@@ -460,7 +454,7 @@ void task_delete_isr(task_handle tsk){
 		queue_free(tsk->start_addr);
 
 	list_remove(&tsk->link_node);
-	log_info(&kernel_log, "Task deleted: name = %s", tsk->name);
+	printf("Task deleted: name = %s"NL, tsk->name);
 
 	call_sched_isr();
 }
@@ -508,7 +502,7 @@ static void stack_safety_check(void){
 	int free_stk_size = current_tcb->top_of_stack - current_tcb->start_addr;
 	if (free_stk_size < 40){
 		EXECUTE_HOOK(hook_stack_overf_isr, current_tcb);
-		log_error(&kernel_log, "Stack overflow in task %s", current_tcb->name);
+		printf("Stack overflow in task %s"NL, current_tcb->name);
 	}
 
 	if (free_stk_size < current_tcb->min_stack)
@@ -530,7 +524,7 @@ void schedule(void){
 	current_tcb = STATE_NODE_TO_TCB(*it);
 
 	if (current_tcb->magic != TCB_MAGIC_NUM){
-		log_fatal(&kernel_log, "overflows occurred in some places, and the tcb was corrupted");
+		printf("overflows occurred in some places, and the tcb was corrupted"NL);
 		while (1) {};
 	}
 }
@@ -590,9 +584,11 @@ static u_int begin_tick = 0;
 */
 static void idle_task(void *nothing){
 	extern splist *wait_for_free;
-
 	u_int last_tick = 0, idle_tick = 0;
-	log_info(&kernel_log, "RTOS start");
+
+	enter_critical();
+	printf("RTOS start"NL);
+	exit_critical();
 	
 	while (1){
 		while (wait_for_free){
@@ -645,11 +641,6 @@ int os_get_task_num(void){
 */
 void Kora_start(void){
 	list_init(&sleep_list);
-
-#if CFG_USING_LOG_SYSTEM
-	log_module_init(&kernel_log, "kernel", lev_warn);
-#endif
-
 	current_tcb = task_init(idle_task, "idle", NULL, CFG_MAX_PRIOS-1, 
 	                        idle_stack, IDLE_TASK_STACK_SIZE);
 
@@ -673,7 +664,8 @@ struct assert_info {
 void os_assert_failed(char *name, int line){
 	assert_info.file_name = name;
 	assert_info.line = line;
-	log_error(&kernel_log, "assert failed at \"%s\", line %d", name, line);
+	printf("assert failed at \"%s\", line %d"NL, name, line);
+	while (1) {};
 }
 
 #endif

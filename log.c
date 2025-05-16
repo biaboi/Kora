@@ -15,9 +15,9 @@
 
 /**
  * @file    log.c
- * @brief   Logging system implementation for kernel and user space.
+ * @brief   Logging system implementation for user space.
  *
- * This file provides a logging system designed for both kernel and user-level modules.
+ * This file provides a logging system designed for user.
  * It utilizes a stream queue to buffer and transmit log messages efficiently.
  * The system supports DMA-based transmission for improved performance.
  * Logging modules are categorized by tags to differentiate various subsystems.
@@ -45,6 +45,8 @@ static const char *level_str[5] = {
 
 
 void log_module_init(log_module *module, char *name, log_level out_lev){
+	os_assert(num_of_modules < CFG_MAX_NUM_OF_MODULE);
+	
 	strncpy(module->name, name, 16);
 	module->name[15] = 0;
 	module->output_level = out_lev;
