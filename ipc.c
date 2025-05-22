@@ -465,7 +465,7 @@ int evt_wait(event_t grp, evt_bits_t bits, bool clr, int opt, u_int wait_ticks){
 	os_assert(bits < 0x01000000);
 
 	enter_critical();
-	u_int *flags = &current_tcb->evt_flags;
+	u_int *flags = &(current_tcb->evt_flags);
 	*flags = (u_int)bits;
 	*flags |= (opt << 30);
 

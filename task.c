@@ -91,7 +91,7 @@ static void remove_from_ready(task_handle tsk){
 		prio_bitmap &= ~(1 << prio);
 
 	if (task_iter[prio] == &tsk->state_node)
-			task_iter[prio] = tsk->state_node.next;
+		task_iter[prio] = tsk->state_node.prev;
 
 	list_remove(&tsk->state_node);
 	highest_prio = get_highest_priority();
@@ -362,6 +362,7 @@ static void tcb_init(tcb_t *tcb, u_int prio, const char *name, u_char *start){
 	tcb->min_stack = 999999;
 	tcb->occupied_tick = 0;
 	tcb->event_node.value = prio;
+	tcb->evt_flags = 0;
 
 	list_insert_end(&all_tasks, &tcb->link_node);
 }

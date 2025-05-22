@@ -23,6 +23,26 @@
  * Logging modules are categorized by tags to differentiate various subsystems.
  */
 
+
+/**
+ * @note for log_task: 
+ * 
+ * Logging task using zero-copy stream queue for efficiency.
+ *
+ * This task retrieves log entries from a stream queue using zero-copy,
+ * meaning it directly uses pointers to the internal buffer of the stream queue
+ * rather than copying the data into a local buffer. This improves performance
+ * and reduces memory overhead.
+ *
+ * However, this approach introduces a critical risk: if streamq_pop() is called
+ * immediately after initiating a DMA transmission (e.g., via UART), the memory
+ * pointed to by the queue entry may still be in use by the DMA hardware. If
+ * new log data is pushed into the queue before the DMA transfer completes,
+ * it can overwrite the memory region still being used by the DMA, leading to
+ * data corruption, misordered output, or garbled logs.
+ *
+ */
+
 #define LOG_TASK_STACK_SIZE   512
 
 #if CFG_USING_LOG_SYSTEM
@@ -128,22 +148,65 @@ void os_log(log_module_t module, log_level level, const char *fmt, ...){
 	if (level >= lev_warn)
 		wait = FOREVER;
 	else
-		wait = 1000;
+		wait = 100;
 
 	streamq_push(&log_que, buffer, offset, wait);    
 }
 
 
+/*
+@ brief: Print through log system's dma(if dma_mode) channel.
+@ retv: The size of the successfully output data.
+*/
+int log_printf(const char *fmt, ...){
+	char buffer[128];
+
+	va_list args;
+	va_start(args, fmt);
+	int offset = vsnprintf(buffer, 128, fmt, args);
+	va_end(args);
+
+	streamq_push(&log_que, buffer, offset, FOREVER);
+	return offset;
+}
+
+
+/*
+@ brief: Output data through log system's dma(if dma_mode) channel.
+*/
+void log_puts(char *data, int size){
+	streamq_push(&log_que, data, size, FOREVER);
+}
+
+
+/*
+@ brief: Log system main task.
+@ note:
+*/
 static void log_task(void *nothing){
 	char *str;
 	u_short len = 0;
 
 	while (1){
-		streamq_front_pointer(&log_que, (void**)&str, &len, FOREVER);
-		if (cur_mode == log_mode_dma)
-			sem_wait(dma_sem, 1000);
+		int ret = streamq_front_pointer(&log_que, (void**)&str, &len, 10000);
+		if (ret != RET_SUCCESS)
+			continue;
+
+		if (cur_mode == log_mode_dma){
+			ret = sem_wait(dma_sem, 1000);
+			if (ret != RET_SUCCESS)
+				continue;
+		}
+
 		log_output(str, len);
 		streamq_pop(&log_que);
+
+	/*
+		char buf[128];
+		memcpy(buf, str, len);
+		log_output(buf, len);
+		streamq_pop(&log_que);
+	*/
 	}
 }
 

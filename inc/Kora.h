@@ -9,7 +9,7 @@
 #include "byteBuffer.h"
 #include <limits.h>
 
-#define KORA_VERSION    "0.83"
+#define KORA_VERSION    "0.85"
 
 /********************************** tasks ************************************/
 
@@ -30,8 +30,8 @@
 typedef void (*transfer_t)(char *, int);
 
 typedef enum {
-    running, ready, sleeping, blocking, suspend}
-task_stat;
+    running, ready, sleeping, blocking, suspend
+} task_stat;
 
 
 typedef struct __tcb {

@@ -22,8 +22,6 @@
 #define CFG_USE_ALLOC_HOOKS         1
 #define CFG_USE_IPC_HOOKS           1
 
-// must open CFG_ALLOW_DYNAMIC_ALLOC
-#define CFG_TRACE_IPC               1   
 
 #define NL  "\n"
 

@@ -30,6 +30,8 @@ void module_set_callback(log_module_t module, vfunc cb);
 void module_set_level(log_module_t module, log_level lev);
 log_module_t module_find(char *name);
 
+int log_printf(const char *fmt, ...);
+void log_puts(char *data, int size);
 void os_log(log_module_t module, log_level level, const char *fmt, ...);
 void log_set_output(transfer_t output, int mode);
 task_handle log_system_init(int task_prio, transfer_t out, sem_t s, int mode);
