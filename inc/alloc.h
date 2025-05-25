@@ -13,7 +13,7 @@ typedef struct {
 	int     peak_heap_usage; 
 	int     max_free_block_size;
 	int     left_block_num;
-} heap_info_t;
+} heap_status_t;
 
 
 void* os_malloc(int size);
@@ -23,7 +23,7 @@ void queue_free(void *addr);
 
 bool is_heap_addr(void *addr);
 int get_heap_remain_size(void);
-heap_info_t* get_heap_status(void);
+heap_status_t* heap_status(void);
 
 #define malloc os_malloc
 #define calloc os_calloc

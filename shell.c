@@ -13,6 +13,7 @@
 
 #include "stdio.h"
 #include "string.h"
+#include "stdlib.h"
 
 /*
 	Command List:
@@ -33,11 +34,11 @@
 */
 
 
-#define IN_BUF_SIZE   40
+#define INPUT_BUF_SIZE   40
 
 static u_char   task_stack[1200];
-static char     input_buf[IN_BUF_SIZE];
-static char     output_buf[100];
+static char     in_buf[INPUT_BUF_SIZE];
+static char     out_buf[100];
 static char    *tokens[10];
 
 static evt_group     recv_evtgrp; 
@@ -50,17 +51,30 @@ typedef struct {
 
 
 
-int __task(int argc, char *agrv[]);
-int __heap(int argc, char *agrv[]);
-int __log(int argc, char *agrv[]);
+int __task(int argc, char **agrv);
+int __heap(int argc, char **agrv);
+int __log(int argc, char **agrv);
+int __var(int argc, char **argv);
 
+static shell_var_t var_table[MAX_NUM_OF_EXPORT_VAR];
+static u_char num_of_var = 0;
 
-static u_char commands_size = 3;
 static command_t commands[10] = {
 	{"task", __task}, 
 	{"heap", __heap},  
 	{"log", __log},
+	{"var", __var},
 };
+static u_char commands_size = 4;
+
+
+void shell_export_var(char* name, void* addr, var_type_t type) {
+	os_assert(num_of_var < MAX_NUM_OF_EXPORT_VAR);
+
+	var_table[num_of_var] = (shell_var_t){"", addr, type};
+	strncpy(var_table[num_of_var].name, name, EXPORT_VAR_NAME_LEN);
+	++num_of_var;
+}
 
 
 /*
@@ -83,7 +97,7 @@ void shell_register_command(char *name, cmd_handler handler){
 */
 static int parse_and_execute(void){
 	int valid = 0;
-	char *token = strtok(input_buf, " ");
+	char *token = strtok(in_buf, " ");
 	while (token != NULL){
 		tokens[valid++] = token;
 		token = strtok(NULL, " ");
@@ -107,8 +121,8 @@ static int parse_and_execute(void){
 @ brief: Copy intput data to buffer and wake up shell_task.
 */
 void shell_input(char *msg, int size){
-	strncpy(input_buf, msg, size);
-	input_buf[IN_BUF_SIZE-1] = 0;
+	strncpy(in_buf, msg, size);
+	in_buf[INPUT_BUF_SIZE-1] = 0;
 	evt_set_isr(&recv_evtgrp, 1);
 }
 
@@ -135,25 +149,183 @@ void shell_init(int prio, transfer_t out){
 
 
 void name_combine(int argc, char **argv, char *out);
-int set_task_table_title(void);
-int setheap_info_table_title(void);
-int output_heap_state(void);
-void output_task_info(task_handle tsk, void *nothing);
+int read_hex(const char *hex, u_char *out);
+
+/*************************** build-in command: var ***************************/
+static char *var_type_to_str[6] = {
+	"hex", "int", "uint", "float", "bool", "string"
+};
+
+#define OUT_STR_MAX_LEN   32
+
+static int sprint_var_data(char *buf, shell_var_t *desc){
+	char outlen = 0;
+	int str_len = 0;
+
+	switch (desc->type){
+	case var_hex:
+		outlen = sprintf(buf, "%X"NL, *(u_char*)(desc->addr));
+		break;
+
+	case var_int:
+		outlen = sprintf(buf, "%d"NL, *(int*)(desc->addr));
+		break;
+
+	case var_uint:
+		outlen = sprintf(buf, "%u"NL, *(int*)(desc->addr));
+		break;
+
+	case var_float:
+		outlen = sprintf(buf, "%f"NL, *(float*)(desc->addr));
+		break;
+
+	case var_bool:
+		strcpy(buf, *(char*)(desc->addr) ? "true "NL : "false"NL);
+		outlen = 7;
+		break;
+
+	case var_string:
+		str_len = strlen(desc->addr);
+		if (str_len >= OUT_STR_MAX_LEN-3){
+			strncpy(buf, (char *)(desc->addr), OUT_STR_MAX_LEN - 6);
+			strcat(buf, "..."NL);
+			outlen = OUT_STR_MAX_LEN;
+		}
+		else {
+			strcpy(buf, (char *)(desc->addr));
+			buf[++str_len] = '\r';
+			buf[++str_len] = '\n';
+			buf[++str_len] = 0;
+			outlen = str_len;
+		}
+
+		break;
+	}
+	return outlen;
+}
+
+
+static void set_var_data(shell_var_t *desc, char *raw){
+	switch (desc->type) {
+	case var_hex:
+		if (read_hex(raw, desc->addr) == RET_FAILED)
+			output("wrong hex format"NL, 19);
+		break;
+
+	case var_int:
+	case var_uint:
+		*(int*)(desc->addr) = atoi(raw);
+		break;
+
+	case var_float:
+		*(float*)(desc->addr) = atof(raw);
+		break;
+
+	case var_bool:
+		if (strcmp(raw, "true") == 0 || strcmp(raw, "1") == 0)
+			*(u_char*)(desc->addr) = 1;
+		else if (strcmp(raw, "false") == 0 || strcmp(raw, "0") == 0)
+			*(u_char*)(desc->addr) = 0;
+		else
+			output("wrong bool format"NL, 20);
+		break;
+
+	case var_string:
+		strncpy(desc->addr, raw, OUT_STR_MAX_LEN);
+		break;
+	}
+
+}
+
+
+int __var(int argc, char **argv){
+	int len;
+	shell_var_t *desc = NULL;
+
+	if (strncmp(argv[0], "list", 4) == 0){
+		output("  name           type     value"NL, 34);
+		for (int i = 0; i < num_of_var; ++i) {
+			shell_var_t *desc = var_table+i;
+			len = sprintf(out_buf, " %-16s %-6s    ", desc->name, var_type_to_str[desc->type]);
+			output(out_buf, len);
+
+			len = sprint_var_data(out_buf, desc);
+			output(out_buf, len);
+		}
+		return RET_SUCCESS;
+	}
+
+	for (int i = 0; i < num_of_var; ++i) {
+		char *name = var_table[i].name;
+		if (strncmp(argv[0], name, EXPORT_VAR_NAME_LEN) == 0){
+			desc = var_table+i;
+			break;
+		}
+	}
+	if (desc == NULL){
+		output("unknown variable"NL, 19);
+		return RET_FAILED;
+	}
+
+
+	if (argc == 1){
+		int len = sprint_var_data(out_buf, desc);
+		output(out_buf, len);
+		return RET_SUCCESS;
+	}
+
+	if (argv[1][0] != '='){
+		output("incorrect format"NL, 19);
+		return RET_FAILED;
+	}
+
+	set_var_data(desc, argv[2]);
+
+	return RET_SUCCESS;
+}
+
 
 /*************************** build-in command: task ***************************/
+static char *stat_to_str[5] = {
+	"run", "ready", "sleep", "block", "susp",
+};
 
-int __task(int argc, char *argv[]) {
+
+static int set_task_table_title(void){
+	return sprintf(out_buf, "%-10s  %6s  %8s   %6s   %9s \r\n", 
+				"name", "prio", "state", "min_stack", "cpu_usage" );
+}
+
+
+/*
+@ brief: Write task's infomations to buffer and send: 
+         name, priority, state, min_stack, occupied_tick
+*/
+void output_task_info(task_handle tsk, void *nothing){
+	int usage = os_get_tick() / 100;
+	usage = tsk->occupied_tick / usage;
+
+	int size = sprintf(out_buf, "%-10s  %6d  %8s   %4d   %9d "NL,  
+				tsk->name, 
+				tsk->priority, 
+				stat_to_str[(int)(tsk->state)], 
+				tsk->min_stack,
+				usage );
+	output(out_buf, size);
+}
+
+
+int __task(int argc, char **argv) {
 	char buf[CFG_TASK_NAME_LEN];
 	int size;   // output data size
 
 	// output all task's infomation
 	if (strncmp(argv[0], "-a", CFG_TASK_NAME_LEN) == 0){
 		size = set_task_table_title();
-		output(output_buf, size);
+		output(out_buf, size);
 
 		foreach_task(output_task_info, NULL);
-
-		output(NL, 2);
+		output(NL, sizeof(NL));
 		return RET_SUCCESS;
 	}
 
@@ -195,10 +367,9 @@ int __task(int argc, char *argv[]) {
 		}
 		else {
 			size = set_task_table_title();
-			output(output_buf, size);
+			output(out_buf, size);
 
 			output_task_info(the_task, NULL);
-			output(NL, 2);
 			return RET_SUCCESS;
 		}
 	}
@@ -212,15 +383,37 @@ int __task(int argc, char *argv[]) {
 }
 
 /*************************** build-in command: heap ***************************/
-int __heap(int argc, char *agrv[]){
+static int setheap_info_table_title(void){
+	return sprintf(out_buf, "%8s %8s %8s %8s %12s\r\n", 
+				"usage", "alloced", "freed", "peak", "freg size");
+}
+
+
+static int output_heap_state(void){
+	heap_status_t *info = heap_status();
+	u_int remain = info->remain_size;
+
+	char usage_percent = (CFG_HEAP_SIZE - remain)*100 / CFG_HEAP_SIZE;
+
+	return sprintf(out_buf, "%6d/%d%% %6d  %7d  %7d %10d\r\n",  
+				CFG_HEAP_SIZE - remain,
+				usage_percent,
+				info->malloc_count,
+				info->free_count,
+				info->peak_heap_usage,
+				info->left_block_num);
+}
+
+
+int __heap(int argc, char **agrv){
 #if CFG_ALLOW_DYNAMIC_ALLOC
 	int size;
 
 	size = setheap_info_table_title();
-	output(output_buf, size);
+	output(out_buf, size);
 
 	size = output_heap_state();
-	output(output_buf, size);
+	output(out_buf, size);
 	
 	return RET_SUCCESS;
 
@@ -233,7 +426,7 @@ int __heap(int argc, char *agrv[]){
 
 /**************************** build-in command: log ****************************/
 
-int __log(int argc, char *argv[]){
+int __log(int argc, char **argv){
 	log_module_t module = module_find(argv[0]);
 	if (module == NULL){
 		output("module do not exist"NL, 22);
@@ -262,11 +455,6 @@ int __log(int argc, char *argv[]){
 
 /************************************ misc ************************************/
 
-static char *stat_to_str[5] = {
-	"run", "ready", "sleep", "block", "susp",
-};
-
-
 static void name_combine(int argc, char **argv, char *out) {
     if (argc <= 1 )
         return;
@@ -282,55 +470,31 @@ static void name_combine(int argc, char **argv, char *out) {
 }
 
 
-static int set_task_table_title(void){
-	return sprintf(output_buf, "%-10s  %6s  %8s   %6s   %9s \r\n", 
-				"name",
-				"prio",
-				"state",
-				"min_stack",
-				"cpu_usage" );
-}
-
-
 /*
-@ brief: Write task's infomations to buffer and send: 
-         name, priority, state, min_stack, occupied_tick
+@ brief: Read a 2byte hex data.
+@ retv: RET_SUCCESS / RET_FAILED.
 */
-void output_task_info(task_handle tsk, void *nothing){
-	int usage = os_get_tick() / 100;
-	usage = tsk->occupied_tick / usage;
+static int read_hex(const char *hex, u_char *out) {
+    if (!hex || !out)
+        return RET_FAILED;
 
-	int size = sprintf(output_buf, "%-10s  %6d  %8s   %4d   %9d \r\n",  
-				tsk->name, 
-				tsk->priority, 
-				stat_to_str[(int)(tsk->state)], 
-				tsk->min_stack,
-				usage );
-	output(output_buf, size);
-}
+    if ((hex[0] == '0') && (hex[1] == 'x' || hex[1] == 'X'))
+        hex += 2;
 
+    u_char value = 0;
 
-static int setheap_info_table_title(void){
-	return sprintf(output_buf, "%8s %8s %8s %8s %12s\r\n", 
-				"usage",
-				"alloced",
-				"freed",
-				"peak",
-				"freg size");
-}
+    for (int i = 0; i < 2; ++i) {
+        char c = hex[i];
+        if (c >= '0' && c <= '9')
+            value = (value << 4) | (c - '0');
+        else if (c >= 'A' && c <= 'F')
+            value = (value << 4) | (c - 'A' + 10);
+        else if (c >= 'a' && c <= 'f') 
+            value = (value << 4) | (c - 'a' + 10);
+        else
+            return RET_FAILED;
+    }
 
-
-static int output_heap_state(void){
-	heap_info_t *info = get_heap_status();
-	u_int remain = info->remain_size;
-
-	char usage_percent = (CFG_HEAP_SIZE - remain)*100 / CFG_HEAP_SIZE;
-
-	return sprintf(output_buf, "%6d/%d%% %6d  %7d  %7d %10d\r\n",  
-				CFG_HEAP_SIZE - remain,
-				usage_percent,
-				info->malloc_count,
-				info->free_count,
-				info->peak_heap_usage,
-				info->left_block_num);
+    *out = value;
+    return RET_SUCCESS;
 }

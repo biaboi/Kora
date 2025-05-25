@@ -22,7 +22,7 @@
 
 
 
-static heap_info_t info = {CFG_HEAP_SIZE}; 
+static heap_status_t info = {CFG_HEAP_SIZE}; 
 static int min_left = CFG_HEAP_SIZE;
 
 
@@ -254,7 +254,7 @@ int get_heap_remain_size(void){
 }
 
 
-heap_info_t* get_heap_status(void){
+heap_status_t* heap_status(void){
 	info.peak_heap_usage = CFG_HEAP_SIZE - min_left;
 	
 	info.max_free_block_size = end->size;

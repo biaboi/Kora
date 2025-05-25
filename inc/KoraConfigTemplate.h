@@ -23,8 +23,6 @@
 #define CFG_USE_IPC_HOOKS           1
 
 
-#define NL  "\n"
-
 #include "port.h"
 
 #endif

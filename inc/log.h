@@ -5,6 +5,8 @@
 #include <string.h>
 #include <time.h>
 
+#define NL  "\r\n"
+
 enum {log_mode_block, log_mode_dma};
 
 typedef enum {

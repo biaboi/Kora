@@ -134,11 +134,13 @@ static void tick_reset(void){
 	EXECUTE_HOOK(hook_tick_reset, NULL);
 
 	list_node_t *iter = FIRST_OF(sleep_list);
+	enter_critical();
 	for (int i = 0; i < sleep_list.list_len; ++i){
 		iter->value -= os_tick_count;
 		iter = iter->next;
 	}
 	os_tick_count = 0;
+	exit_critical();
 }
 
 
@@ -352,7 +354,7 @@ static void tcb_init(tcb_t *tcb, u_int prio, const char *name, u_char *start){
 	tcb->name[CFG_TASK_NAME_LEN-1] = 0;
 	tcb->priority = prio;
 	tcb->top_of_stack = (u_char*)((u_int)tcb - sizeof(u_int)*17);
-	tcb->start_addr = (u_char*)((u_int)start + sizeof(tcb_t));
+	tcb->start_addr = (u_char*)start;
 	tcb->state = ready;
 	LIST_NODE_INIT(&tcb->state_node);
 	LIST_NODE_INIT(&tcb->event_node);
