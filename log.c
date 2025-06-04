@@ -59,7 +59,7 @@ static transfer_t    log_output;
 static int num_of_modules = 0;
 static log_module_t  all_modules[CFG_MAX_NUM_OF_MODULE];
 
-static const char *level_str[5] = {
+const char *level_str[5] = {
 	"debug", "info", "warn", "error", "fatal"
 };
 
@@ -117,6 +117,13 @@ log_module_t module_find(char *name){
 			return all_modules[i];
 	return NULL;
 }
+
+
+void foreach_log(void (*process)(log_module_t module)){
+	for (int i = 0; i < num_of_modules; ++i)
+		process(all_modules[i]);
+}
+
 
 void log_set_output(transfer_t output, int mode){
 	log_output = output;

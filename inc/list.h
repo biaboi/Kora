@@ -29,6 +29,7 @@ typedef struct __list {
 
 void list_init(list_t *lst);
 int list_insert(list_t *lst, list_node_t *node);
+int list_insert_before(list_t *lst, list_node_t *pos, list_node_t *node);
 int list_insert_end(list_t *lst, list_node_t* node);
 int list_remove(list_node_t *node);
 

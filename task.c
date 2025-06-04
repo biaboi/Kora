@@ -28,6 +28,9 @@
  * 
  */
 
+#define SLEEP_STRATEGY_QUICK
+
+#define NL "\r\n"
 
 #if CFG_USE_KERNEL_HOOKS
     vfunc kernel_hooks[kernel_hook_nums];
@@ -126,6 +129,7 @@ static inline void remove_ready_node(task_handle tsk){
 } 
 
 
+#ifdef SLEEP_STRATEGY_QUICK
 /*
 @ brief: If sleep time overflow(sleep tick + os_tick_count > UINT_MAX), 
          reset every task's sleep time and reset tick count.
@@ -143,17 +147,45 @@ static void tick_reset(void){
 	exit_critical();
 }
 
+#endif
 
 /*
 @ brief: Add the task to sleep_list
 */
 static void add_to_sleep(task_handle tsk, u_int xtick){
+
+#ifdef SLEEP_STRATEGY_QUICK
 	if (xtick > UINT_MAX-os_tick_count)
 		tick_reset();
 
 	xtick += os_tick_count;
 	tsk->state_node.value = xtick;
 	list_insert(&sleep_list, &tsk->state_node);
+
+#else
+	u_int wake_tick = os_tick_count + xtick;
+	list_node_t *node = &tsk->state_node;
+	node->value = wake_tick;
+
+	list_node_t *pos = FIRST_OF(sleep_list);
+
+	if (sleep_list.list_len == 0) {
+		list_insert_end(&sleep_list, node);
+		return;
+	}
+
+	while (pos != &sleep_list.dmy) {
+		if ((int)(wake_tick - pos->value) < 0)
+			break;
+		pos = pos->next;
+	}
+
+	if (pos == &sleep_list.dmy)
+		list_insert_end(&sleep_list, node);
+	else
+		list_insert_before(&sleep_list, pos, node);
+
+#endif
 }
 
 
@@ -394,7 +426,7 @@ tcb_t* task_init(vfunc code, const char *name, void *para, u_int prio, u_char *s
 	tcb_init(new_tcb, prio, name, stk);
 	port_rt_stack_init(code, para, (u_char*)new_tcb);
 	add_to_ready(new_tcb);
-	printf("Task created at %p, name = %s, priority = %d"NL, new_tcb, name, prio);
+	kn_print("Task created at %p, name = %s, priority = %d"NL, new_tcb, name, prio);
 
 	return new_tcb;
 }
@@ -442,7 +474,7 @@ void task_delete(task_handle tsk){
 
 	list_remove(&tsk->link_node);
 
-	printf("Task deleted: name = %s"NL, tsk->name);
+	kn_print("Task deleted: name = %s"NL, tsk->name);
 	exit_critical();
 	call_sched();
 }
@@ -457,7 +489,7 @@ void task_delete_isr(task_handle tsk){
 		queue_free(tsk->start_addr);
 
 	list_remove(&tsk->link_node);
-	printf("Task deleted: name = %s"NL, tsk->name);
+	kn_print("Task deleted: name = %s"NL, tsk->name);
 
 	call_sched_isr();
 }
@@ -505,7 +537,7 @@ static void stack_safety_check(void){
 	int free_stk_size = current_tcb->top_of_stack - current_tcb->start_addr;
 	if (free_stk_size < 40){
 		EXECUTE_HOOK(hook_stack_overf_isr, current_tcb);
-		printf("Stack overflow in task %s"NL, current_tcb->name);
+		kn_print("Stack overflow in task %s"NL, current_tcb->name);
 	}
 
 	if (free_stk_size < current_tcb->min_stack)
@@ -527,20 +559,33 @@ void schedule(void){
 	current_tcb = STATE_NODE_TO_TCB(*it);
 
 	if (current_tcb->magic != TCB_MAGIC_NUM){
-		printf("overflows occurred in some places, and the tcb was corrupted"NL);
+		kn_print("overflows occurred in some places, and the tcb was corrupted"NL);
 		while (1) {};
 	}
 }
 
 
 static void wake_task_from_sleep(void){
-	list_node_t *first = sleep_list.dmy.next;
+	list_node_t *first = FIRST_OF(sleep_list);
+	tcb_t *tsk;
+
+#ifdef SLEEP_STRATEGY_QUICK
 	if (os_tick_count >= first->value){
-		tcb_t *tcb = STATE_NODE_TO_TCB(first);
-		list_remove(&tcb->event_node);
-		list_remove(&tcb->state_node);
-		add_to_ready(tcb);
+		tsk = STATE_NODE_TO_TCB(first);
+		list_remove(&tsk->event_node);
+		list_remove(&tsk->state_node);
+		add_to_ready(tsk);
 	}
+
+#else
+	if ((int)(first->value - os_tick_count) < 0){
+		tsk = STATE_NODE_TO_TCB(first);
+		list_remove(&tsk->event_node);
+		list_remove(&tsk->state_node);
+		add_to_ready(tsk);
+	}
+#endif
+
 }
 
 
@@ -590,7 +635,7 @@ static void idle_task(void *nothing){
 	u_int last_tick = 0, idle_tick = 0;
 
 	enter_critical();
-	printf("RTOS start"NL);
+	kn_print("RTOS start"NL);
 	exit_critical();
 	
 	while (1){
@@ -667,7 +712,7 @@ struct assert_info {
 void os_assert_failed(char *name, int line){
 	assert_info.file_name = name;
 	assert_info.line = line;
-	printf("assert failed at \"%s\", line %d"NL, name, line);
+	kn_print("assert failed at \"%s\", line %d"NL, name, line);
 	while (1) {};
 }
 

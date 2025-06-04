@@ -16,7 +16,7 @@ typedef enum {
 typedef struct {
 	char    name[16];
 	short   output_level;
-	short   onoff;
+	short   onoff;     // 1: enbale, 0: disable
 	vfunc   fatal_callback;
 } log_module;
 
@@ -31,6 +31,7 @@ void module_off(log_module_t module);
 void module_set_callback(log_module_t module, vfunc cb);
 void module_set_level(log_module_t module, log_level lev);
 log_module_t module_find(char *name);
+void foreach_log(void (*process)(log_module_t  module));
 
 int log_printf(const char *fmt, ...);
 void log_puts(char *data, int size);

@@ -426,7 +426,24 @@ int __heap(int argc, char **agrv){
 
 /**************************** build-in command: log ****************************/
 
+extern const char *level_str[5];
+
+static void print_log_state(log_module_t module){
+	int size = sprintf(out_buf, "%s   %3s      %s"NL, 
+			module->name, 
+			module->onoff ? "on" : "off", 
+			level_str[module->output_level] );
+	output(out_buf, size);
+}
+
 int __log(int argc, char **argv){
+	if (strcmp(argv[0], "list") == 0){
+		output("name    state    level"NL, 24);
+		foreach_log(print_log_state);
+		return RET_SUCCESS;
+	}
+
+
 	log_module_t module = module_find(argv[0]);
 	if (module == NULL){
 		output("module do not exist"NL, 22);

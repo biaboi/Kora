@@ -10,6 +10,9 @@ void list_init(list_t *lst){
 }
 
 
+/*
+@ brief: Insert node to list end.
+*/
 int list_insert_end(list_t *lst, list_node_t *node) {
 	if (node->leader != NULL)
 		return RET_FAILED;
@@ -26,7 +29,23 @@ int list_insert_end(list_t *lst, list_node_t *node) {
 } 
 
 
-// sort by node's value
+int list_insert_before(list_t *lst, list_node_t *pos, list_node_t *node){
+	if (node->leader != NULL)
+		return RET_FAILED;
+
+	node->leader = lst;
+
+	node->prev = pos->prev;
+	node->next = pos;
+	pos->prev->next = node;
+	pos->prev = node;
+
+	return ++(lst->list_len);
+}
+
+/*
+@ brief: Insert node, sort by node's value(rise)
+*/
 int list_insert(list_t *lst, list_node_t *node){
 	if (node->leader != NULL)
 		return RET_FAILED;
