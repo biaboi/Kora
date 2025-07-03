@@ -17,9 +17,11 @@ typedef struct {
 
 void byte_buffer_init(byte_buffer* bbf, u_char *buf, int buf_size);
 int byte_buffer_free_space(byte_buffer *bbf);
+int byte_buffer_max_write_space(byte_buffer *bbf);
+
 int byte_buffer_push(byte_buffer *bbf, void *input, u_short len);
 int byte_buffer_front(byte_buffer *bbf, void *output);
 int byte_buffer_front_pointer(byte_buffer *bbf, void **pointer, u_short *outlen);
-void byte_buffer_pop(byte_buffer *bbf);
+int byte_buffer_pop(byte_buffer *bbf);
 
 #endif

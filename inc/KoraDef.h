@@ -21,10 +21,9 @@ typedef unsigned int   u_int;
 
 typedef void (*vfunc)(void*);
 
-typedef struct simple_list {
-	struct simple_list *next;
-} splist;
-
+typedef struct linked_list{
+	struct linked_list *next;
+} linked_list;
 
 
 #endif

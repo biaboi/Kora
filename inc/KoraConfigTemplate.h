@@ -15,13 +15,12 @@
 #define CFG_KORA_ASSERT             1
 
 #define CFG_USING_LOG_SYSTEM        1
-#define CFG_LOG_BUFFER_SIZE         400
-#define CFG_MAX_NUM_OF_MODULE       8
 
 #define CFG_USE_KERNEL_HOOKS        1
 #define CFG_USE_ALLOC_HOOKS         1
 #define CFG_USE_IPC_HOOKS           1
 
+#define kn_print(...) printf(__VA_ARGS__)
 
 #include "port.h"
 

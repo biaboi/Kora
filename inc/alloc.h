@@ -30,8 +30,8 @@ heap_status_t* heap_status(void);
 #define free   os_free
 
 typedef enum {
-	hook_alloc_failed = 0,   // param: pass in the size of os_malloc()
-    hook_free_failed,        // param: pass in the address of os_free()
+	hook_alloc_failed = 0,   // para: the size of os_malloc()
+    hook_free_failed,        // para: the address of os_free()
 
     alloc_hook_nums
 } alloc_hooks_t;
@@ -39,11 +39,11 @@ typedef enum {
 
 #if CFG_USE_ALLOC_HOOKS
     extern   vfunc alloc_hooks[alloc_hook_nums];
-    #define  KERNEL_HOOK_ADD(x, func)  (kernel_hooks[x] = (func))
-    #define  KERNEL_HOOK_DEL(x)        (kernel_hooks[x] = NULL)
+    #define  ALLOC_HOOK_ADD(x, func)  (alloc_hooks[x] = (func))
+    #define  ALLOC_HOOK_DEL(x)        (alloc_hooks[x] = NULL)
 #else
-    #define  KERNEL_HOOK_ADD(x, func)  ((void)0)
-    #define  KERNEL_HOOK_DEL(x)        ((void)0)
+    #define  ALLOC_HOOK_ADD(x, func)  ((void)0)
+    #define  ALLOC_HOOK_DEL(x)        ((void)0)
 #endif
 
 

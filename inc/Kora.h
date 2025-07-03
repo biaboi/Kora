@@ -14,39 +14,41 @@
 /********************************** tasks ************************************/
 
 /*
-                higher addrress
-    +---------------------------------+
-    |                                 |	
-    |       task control block        |
-    |                                 |
-    +---------------------------------|  <- top_of_stack (when stack empty)
-    |                                 |
-    |          run time stack         |
-    |                                 |
-    +---------------------------------+  <- start_addr
+				higher addrress
+	+---------------------------------+
+	|                                 |	
+	|       task control block        |
+	|                                 |
+	+---------------------------------|  <- top_of_stack (when stack empty)
+	|                                 |
+	|          run time stack         |
+	|                                 |
+	+---------------------------------+  <- start_addr
 
 */
 
 typedef void (*transfer_t)(char *, int);
 
 typedef enum {
-    running, ready, sleeping, blocking, suspend
+	running, ready, sleeping, blocking, suspend
 } task_stat;
 
 
 typedef struct __tcb {
-    u_char         *top_of_stack;
-    u_int           magic;            // used for check if tcb is accidentally overwritten 
-    u_int           occupied_tick;    // used for roughly calculate the CPU usage
-    u_char         *start_addr;
-    u_int           priority;
-    char            name[CFG_TASK_NAME_LEN];
-    u_int           min_stack;        // store the minimum remaining stack size
-    task_stat       state;
-    u_int           evt_flags;        // used in event group
-    list_node_t     state_node;       // state_node will be only mounted on ready_list or sleep_list
-    list_node_t     event_node;       
-    list_node_t     link_node;        // once the task is created, it is mounted to the all_tasks list 
+	u_char         *top_of_stack;
+	u_int           magic;            // used for check if tcb is accidentally overwritten 
+	u_int           occupied_tick;    // used for roughly calculate the CPU usage
+	u_char         *start_addr;
+	u_int           priority;
+	char            name[CFG_TASK_NAME_LEN];
+	u_int           min_stack;        // store the minimum remaining stack size
+	task_stat       state;
+	void           *mpu_cfg;
+	void           *user_data;
+	u_int           evt_flags;        // used in event group
+	list_node_t     state_node;       // state_node will be only mounted on ready_list or sleep_list
+	list_node_t     event_node;       
+	list_node_t     link_node;        // once the task is created, it is mounted to the all_tasks list 
 } tcb_t;
 
 
@@ -86,7 +88,7 @@ void exit_critical(void);
 void disable_task_switch(void);
 void enable_task_switch(void);
 bool is_scheduler_running(void);
-task_handle self(void);
+task_handle task_self(void);
 task_handle os_get_running_task(void);
 int os_get_tick(void);
 int os_get_cpu_utilization(void);
@@ -114,7 +116,7 @@ sem_t sem_create(int max_cnt, int init_cnt);
 int sem_delete(sem_t s);
 
 int sem_wait(sem_t s, u_int wait_ticks);
-int sem_peek(cntsem *s, u_int wait_ticks);
+int sem_peek(sem_t s, u_int wait_ticks);
 int sem_signal(sem_t s);
 int sem_signal_isr(sem_t s);
 
@@ -192,17 +194,18 @@ void evt_clear_isr(event_t grp, evt_bits_t bits);
 /******************************** byte buffer **********************************/
 
 typedef struct {
-    byte_buffer   bbf;
-    list_t        rb_list;  // read_block_list
-    list_t        wb_list;  // write_block_list
+	byte_buffer   bbf;
+	list_t        rb_list;  // read_block_list
+	list_t        wb_list;  // write_block_list
 } streamq;
 
 typedef streamq* streamq_t;
 
 
-void streamq_init(streamq_t sq, void *buf, int buf_size);
+void streamq_init(streamq_t sq, void *buf, int total_size);
 streamq_t streamq_create(int buf_size);
 int streamq_delete(streamq_t sq);
+
 int streamq_push(streamq_t sq, void *data, u_short size, u_int wait_ticks);
 int streamq_push_isr(streamq_t sq, void *data, u_short size);
 int streamq_front(streamq_t sq, void *output, u_int wait_ticks);
@@ -211,25 +214,29 @@ void streamq_pop(streamq_t sq);
 
 /******************************** kernel hooks **********************************/
 
-typedef enum {
-    hook_task_switched_isr = 0,
-    hook_task_delete,
-    hook_idle,
-    hook_stack_overf_isr,
-    hook_systick_isr,
-    hook_tick_reset,
+typedef struct {
+	task_handle  old_tcb;
+	task_handle  cur_tcb;
+} task_switched_info_t;
 
-    kernel_hook_nums
+typedef enum {
+	hook_task_switched_isr = 0,  // para: &task_switched_info_t
+	hook_task_delete,            // para: the deleted task's handle
+	hook_idle,                   // para: NULL
+	hook_stack_overf_isr,        // para: the task's handle which stack overflow
+	hook_systick_isr,            // para: &os_tick_count
+
+	kernel_hook_nums
 } kernel_hooks_t;
 
 
 #if CFG_USE_KERNEL_HOOKS
-    extern   vfunc    kernel_hooks[kernel_hook_nums];
-    #define  KERNEL_HOOK_ADD(x, func)  (kernel_hooks[x] = (func))
-    #define  KERNEL_HOOK_DEL(x)        (kernel_hooks[x] = NULL)
+	extern   vfunc    kernel_hooks[kernel_hook_nums];
+	#define  KERNEL_HOOK_ADD(x, func)  (kernel_hooks[x] = (func))
+	#define  KERNEL_HOOK_DEL(x)        (kernel_hooks[x] = NULL)
 #else
-    #define  KERNEL_HOOK_ADD(x, func)  ((void)0)
-    #define  KERNEL_HOOK_DEL(x)        ((void)0)
+	#define  KERNEL_HOOK_ADD(x, func)  ((void)0)
+	#define  KERNEL_HOOK_DEL(x)        ((void)0)
 #endif
 
 

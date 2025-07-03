@@ -33,7 +33,7 @@
 #define NL "\r\n"
 
 #if CFG_USE_KERNEL_HOOKS
-    vfunc kernel_hooks[kernel_hook_nums];
+	vfunc kernel_hooks[kernel_hook_nums] = {0};
 	#define EXECUTE_HOOK(x, para) do{ if (kernel_hooks[x]) (kernel_hooks[x])(para);} while (0)
 #else
 	#define EXECUTE_HOOK(x, para) ((void)0)
@@ -135,8 +135,6 @@ static inline void remove_ready_node(task_handle tsk){
          reset every task's sleep time and reset tick count.
 */
 static void tick_reset(void){
-	EXECUTE_HOOK(hook_tick_reset, NULL);
-
 	list_node_t *iter = FIRST_OF(sleep_list);
 	enter_critical();
 	for (int i = 0; i < sleep_list.list_len; ++i){
@@ -192,6 +190,12 @@ static void add_to_sleep(task_handle tsk, u_int xtick){
 /*
 @ brief: Change the state of the task to Ready
 @ note: If the task becomes the highest priority off all, it will scheduled immediately
+@ warning: This function will consume a lock_nesting, must use like this:
+		    {
+                enter_critical();
+                task_ready();
+                do something();
+		    }
 */
 void task_ready(task_handle tsk){
 	os_assert(lock_nesting == 1);
@@ -335,7 +339,7 @@ task_handle os_get_running_task(void){
 }
 
 
-task_handle self(void){
+task_handle task_self(void){
 	return current_tcb;
 }
 
@@ -388,6 +392,9 @@ static void tcb_init(tcb_t *tcb, u_int prio, const char *name, u_char *start){
 	tcb->top_of_stack = (u_char*)((u_int)tcb - sizeof(u_int)*17);
 	tcb->start_addr = (u_char*)start;
 	tcb->state = ready;
+	tcb->mpu_cfg = NULL;
+	tcb->user_data = NULL;
+
 	LIST_NODE_INIT(&tcb->state_node);
 	LIST_NODE_INIT(&tcb->event_node);
 	LIST_NODE_INIT(&tcb->link_node);
@@ -469,10 +476,9 @@ void task_delete(task_handle tsk){
 
 	remove_ready_node(tsk);
 	list_remove(&tsk->event_node);
-	if (is_heap_addr(tsk->start_addr))
-		queue_free(tsk->start_addr);
-
 	list_remove(&tsk->link_node);
+
+	queue_free(tsk->start_addr);
 
 	kn_print("Task deleted: name = %s"NL, tsk->name);
 	exit_critical();
@@ -485,10 +491,10 @@ void task_delete_isr(task_handle tsk){
 
 	remove_ready_node(tsk);
 	list_remove(&tsk->event_node);
-	if (is_heap_addr(tsk->start_addr))
-		queue_free(tsk->start_addr);
-
 	list_remove(&tsk->link_node);
+	
+	queue_free(tsk->start_addr);
+
 	kn_print("Task deleted: name = %s"NL, tsk->name);
 
 	call_sched_isr();
@@ -555,8 +561,11 @@ void schedule(void){
 	if (*it == &(ready_lists[highest_prio].dmy))
 		(*it) = (*it)->next;
 	
-	EXECUTE_HOOK(hook_task_switched_isr, current_tcb);
+	task_switched_info_t hook_para = {current_tcb, NULL};
 	current_tcb = STATE_NODE_TO_TCB(*it);
+	hook_para.cur_tcb = current_tcb;
+
+	EXECUTE_HOOK(hook_task_switched_isr, &hook_para);
 
 	if (current_tcb->magic != TCB_MAGIC_NUM){
 		kn_print("overflows occurred in some places, and the tcb was corrupted"NL);
@@ -631,7 +640,7 @@ static u_int begin_tick = 0;
            execute idle hook 
 */
 static void idle_task(void *nothing){
-	extern splist *wait_for_free;
+	extern linked_list *wait_for_free;
 	u_int last_tick = 0, idle_tick = 0;
 
 	enter_critical();

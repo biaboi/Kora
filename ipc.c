@@ -89,7 +89,7 @@ int sem_delete(cntsem *s){
 
 /*
 @ brief: Wait for the semaphore to be ready and take one.
-@ retv:  RET_SUCCESS / RET_FAILED(timeout)
+@ retv: RET_SUCCESS / RET_FAILED(timeout)
 @ note: If wait_ticks == 0, Whether the operation is successful or not,
         it will exit immediately without triggering an schedule
 */
@@ -545,6 +545,12 @@ void evt_clear_isr(event_t grp, evt_bits_t bits){
 	Data is stored and retrieved in segments by using structure byte_buffer.
 */
 
+/*
+@ param: Buf -> body of the buffer, excluding streamq header.
+         Buf_size -> size of buffer.
+@ warning: The buf_size parameter must include the size of the streamq structure.
+          The actual size available for the data buffer is 'buf_size - sizeof(streamq)'.
+*/
 void streamq_init(streamq_t sq, void *buf, int buf_size){
 	byte_buffer_init(&sq->bbf, buf, buf_size);
 	list_init(&sq->wb_list);
@@ -552,11 +558,16 @@ void streamq_init(streamq_t sq, void *buf, int buf_size){
 }
 
 
+/*
+@ brief: Dynamically creates a stream queue with the given buffer size.
+@ param: buf_size -> the size of the stream queue data buffer (excluding header).
+@ note: Tha actually size of memory alloced is buf_size + sizeof(streamq).
+*/
 streamq_t streamq_create(int buf_size){
 	if (buf_size == 0)
 		return NULL;
 
-	streamq_t sq = malloc(sizeof(streamq));
+	streamq_t sq = malloc(sizeof(streamq) + buf_size);
 	if (sq == NULL){
 		return NULL;
 	}
@@ -679,8 +690,8 @@ int streamq_front_pointer(streamq_t sq, void **pointer, u_short *outlen, u_int w
 */
 void streamq_pop(streamq_t sq){
 	enter_critical();
-	byte_buffer_pop(&sq->bbf);
-	wakeup(&sq->wb_list);
+	if (byte_buffer_pop(&sq->bbf) == RET_SUCCESS);
+		wakeup(&sq->wb_list);
 	exit_critical();
 }
 

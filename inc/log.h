@@ -6,39 +6,52 @@
 #include <time.h>
 
 #define NL  "\r\n"
-
-enum {log_mode_block, log_mode_dma};
+#define CFG_MAX_NUM_OF_LOG_MODULE   8
 
 typedef enum {
 	lev_debug = 0, lev_info, lev_warn, lev_error, lev_fatal
 } log_level;
 
+typedef void (*log_callback)(const char* log_msg, log_level level, void* udata);
+
 typedef struct {
 	char    name[16];
-	short   output_level;
-	short   onoff;     // 1: enbale, 0: disable
-	vfunc   fatal_callback;
+	log_level   output_level;
+
+	volatile bool  is_enabled;        // whether this module working
+	volatile bool  is_include_name;   // whether log message contains the module name
+
+	log_callback   user_callback;
+	void* udata;   // user-defined data
 } log_module;
 
 typedef log_module* log_module_t;
 
 
+typedef struct {
+	bool    is_timestamp;
+	const char* (*get_time_str)(void);
+	log_callback   callback;
+} log_config_t;
+
+
 void log_module_init(log_module *module, char *name, log_level out_lev);
 log_module_t log_module_create(char *name, log_level out_lev);
 
-void module_on(log_module_t module);
-void module_off(log_module_t module);
-void module_set_callback(log_module_t module, vfunc cb);
-void module_set_level(log_module_t module, log_level lev);
+void module_set_callback(log_module_t module, log_callback ucb, void *user_data);
 log_module_t module_find(char *name);
-void foreach_log(void (*process)(log_module_t  module));
+void foreach_log_module(void (*process)(log_module_t module));
 
-int log_printf(const char *fmt, ...);
-void log_puts(char *data, int size);
+void log_init(transfer_t out_func, log_callback callback);
+void log_set_timefunc(const char* (*pfunc)(void));
+void log_use_timestamp(bool state);
 void os_log(log_module_t module, log_level level, const char *fmt, ...);
-void log_set_output(transfer_t output, int mode);
-task_handle log_system_init(int task_prio, transfer_t out, sem_t s, int mode);
 
+#define MODULE_ON(module)   ((module)->is_enabled = true)
+#define MODULE_OFF(module)  ((module)->is_enabled = false)
+#define MODULE_INC_NAME(module)      ((module)->is_include_name = true)
+#define MODULE_NOT_INC_NAME(module)  ((module)->is_include_name = false)
+#define MODULE_SET_LEVEL(module, lev)  ((module)->output_level = (lev))
 
 #if CFG_USING_LOG_SYSTEM
 	#define log_debug(module, ...)  os_log(module, lev_debug, __VA_ARGS__)

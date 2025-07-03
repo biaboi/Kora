@@ -226,18 +226,7 @@ void os_free(void *addr){
 }
 
 
-splist *wait_for_free = NULL;
-
-/*
-@ brief: Not immediately free, instead add the block to a linked list, and actually free in idle task
-*/
-void queue_free(void *addr){
-	enter_critical();
-	splist *_addr = addr;
-	_addr->next = wait_for_free;
-	wait_for_free = _addr;
-	exit_critical();
-}
+linked_list *wait_for_free = NULL;
 
 
 bool is_heap_addr(void *addr){
@@ -246,6 +235,32 @@ bool is_heap_addr(void *addr){
 	if (_addr < _heap || _addr >= _heap + CFG_HEAP_SIZE)
 		return false;
 	return true;
+}
+
+
+/*
+@ brief: Not immediately free, instead add the block to a linked list, 
+         and actually free in idle task:
+	              ┌──────────────────────┐
+	              │    wait_for_free     │
+	              │ (Idle task will free)│
+	              └─────────┬────────────┘
+	                        │
+	     ┌──────────────────┘
+	     ▼
+	┌────────────┐ ┌────────────┐ ┌────────────┐
+	│   addr     │→│  old node  │→│   ...      │→NULL
+	└────────────┘ └────────────┘ └────────────┘
+*/
+void queue_free(void *addr){
+	enter_critical();
+
+	if (is_heap_addr(addr)){
+		linked_list *_addr = addr;
+		_addr->next = wait_for_free;
+		wait_for_free = _addr;
+	}
+	exit_critical();
 }
 
 

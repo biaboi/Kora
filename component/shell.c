@@ -11,9 +11,9 @@
 #include "log.h"
 #include "shell.h"
 
-#include "stdio.h"
-#include "string.h"
-#include "stdlib.h"
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 
 /*
 	Command List:
@@ -34,6 +34,7 @@
 */
 
 
+#define RECV_MSG_BIT    (1 << 0)
 #define INPUT_BUF_SIZE   40
 
 static u_char   task_stack[1200];
@@ -41,6 +42,7 @@ static char     in_buf[INPUT_BUF_SIZE];
 static char     out_buf[100];
 static char    *tokens[10];
 
+static task_handle   waiting_resp = NULL;
 static evt_group     recv_evtgrp; 
 static transfer_t    output = NULL;
 
@@ -119,17 +121,37 @@ static int parse_and_execute(void){
 
 /*
 @ brief: Copy intput data to buffer and wake up shell_task.
+@ warning: This function must
 */
-void shell_input(char *msg, int size){
+void shell_input_isr(char *msg, int size){
 	strncpy(in_buf, msg, size);
-	in_buf[INPUT_BUF_SIZE-1] = 0;
-	evt_set_isr(&recv_evtgrp, 1);
+	in_buf[size] = 0;
+
+	if (waiting_resp == NULL){
+		evt_set_isr(&recv_evtgrp, RECV_MSG_BIT);
+	}
+	else {
+		task_ready_isr(waiting_resp);
+		waiting_resp = NULL;
+	}
+}
+
+
+/*
+@ brief: Wait for user input.
+@ retv: Return the buffer that store the user inputs.
+*/
+char* shell_wait_response(void){
+	waiting_resp = task_self();
+	task_suspend(NULL);
+
+	return in_buf;
 }
 
 
 void shell_task(void *nothing){
 	while (1){
-		evt_wait(&recv_evtgrp, 1, 1, 1, FOREVER);
+		evt_wait(&recv_evtgrp, RECV_MSG_BIT, true, EVT_GROUP_OPT_AND, FOREVER);
 
 		parse_and_execute();
 	}
@@ -431,7 +453,7 @@ extern const char *level_str[5];
 static void print_log_state(log_module_t module){
 	int size = sprintf(out_buf, "%s   %3s      %s"NL, 
 			module->name, 
-			module->onoff ? "on" : "off", 
+			module->is_enabled ? "on" : "off", 
 			level_str[module->output_level] );
 	output(out_buf, size);
 }
@@ -439,7 +461,7 @@ static void print_log_state(log_module_t module){
 int __log(int argc, char **argv){
 	if (strcmp(argv[0], "list") == 0){
 		output("name    state    level"NL, 24);
-		foreach_log(print_log_state);
+		foreach_log_module(print_log_state);
 		return RET_SUCCESS;
 	}
 
@@ -451,9 +473,9 @@ int __log(int argc, char **argv){
 	}
 
 	if (strncmp(argv[1], "on", 8) == 0)
-		module->onoff = 1;
+		module->is_enabled = 1;
 	else if (strncmp(argv[1], "off", 8) == 0)
-		module->onoff = 0;
+		module->is_enabled = 0;
 	else if (strncmp(argv[1], "debug", 8) == 0)
 		module->output_level = lev_debug;
 	else if (strncmp(argv[1], "info", 8) == 0)

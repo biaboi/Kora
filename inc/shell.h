@@ -16,9 +16,10 @@ typedef struct {
 
 void shell_register_command(char *name, cmd_handler handler);
 void shell_export_var(char *name, void *addr, var_type_t type);
+char* shell_wait_response(void);
 
 void shell_init(int prio, transfer_t output);
-void shell_input(char *msg, int size);
+void shell_input_isr(char *msg, int size);
 
 #define SHELL_EXPORT_VAR(var, type) shell_export_var(#var, &(var), var_##type)
 
